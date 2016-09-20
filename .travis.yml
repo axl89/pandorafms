@@ -5,7 +5,7 @@ services:
 
 script:
   - docker run --name pandorafms -h pandorafms -dt -v "$TRAVIS_BUILD_DIR:/tmp/pandorafms" -p 127.0.0.1:8080:80 pandorafms/pandorafms-base tail -f /var/log/messages
-  - docker exec pandorafms -t export DISPLAY=10.0 && /usr/bin/xvfb-run
+  - docker exec -t pandorafms export DISPLAY=10.0 && /usr/bin/xvfb-run
   - docker exec -t pandorafms sleep 4
   - docker exec -t pandorafms /tmp/pandorafms/tests/test.sh
   #- docker exec -t pandorafms sh -e /etc/init.d/xvfbd start
