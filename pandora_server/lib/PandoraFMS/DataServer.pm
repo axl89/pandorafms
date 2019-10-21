@@ -813,6 +813,11 @@ sub process_module_data ($$$$$$$$$$) {
 		$module_conf->{'max_critical'} = $module->{'max_critical'} unless defined ($module_conf->{'max_critical'});
 		$module_conf->{'min_warning'} = $module->{'min_warning'} unless defined ($module_conf->{'min_warning'});
 		$module_conf->{'max_warning'} = $module->{'max_warning'} unless defined ($module_conf->{'max_warning'});
+		$module_conf->{'str_warning'} = $module->{'str_warning'} unless defined ($module_conf->{'str_warning'});
+		$module_conf->{'str_critical'} = $module->{'str_critical'} unless defined ($module_conf->{'str_critical'});
+		$module_conf->{'critical_instructions'} = $module->{'critical_instructions'} unless defined ($module_conf->{'critical_instructions'});
+		$module_conf->{'warning_instructions'} = $module->{'warning_instructions'} unless defined ($module_conf->{'warning_instructions'});
+		$module_conf->{'unknown_instructions'} = $module->{'unknown_instructions'} unless defined ($module_conf->{'unknown_instructions'});
 	}
 	
 	# Check if the module is policy linked to update it or not
