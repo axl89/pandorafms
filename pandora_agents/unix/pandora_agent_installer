@@ -9,8 +9,8 @@
 # Please see http://www.pandorafms.org. This code is licensed under GPL 2.0 license.
 # **********************************************************************
 
-PI_VERSION="6.1dev"
-PI_BUILD="160921"
+PI_VERSION="7.0NG.739"
+PI_BUILD="191021"
 OS_NAME=`uname -s`
 
 FORCE=0
@@ -150,12 +150,27 @@ uninstall () {
 		rm /Library/LaunchDaemons/com.pandorafms.pandorafms.plist 2> /dev/null
 	fi
 
+	# Stops the agent on uninstall
+	if [ -f $PANDORA_BASE/etc/init.d/pandora_agent_daemon ]; then
+		$PANDORA_BASE/etc/init.d/pandora_agent_daemon stop 12> /dev/null
+	else
+		echo "$PANDORA_BASE/etc/init.d/pandora_agent_daemon not found to stop agent"
+	fi
+
 	echo "Removing Pandora FMS Agent..."
 	rm -Rf $PANDORA_BASE$PANDORA_BIN 2> /dev/null
 	rm -Rf $PANDORA_BASE$PANDORA_EXEC_BIN 2> /dev/null
 	rm -Rf $PANDORA_BASE$PANDORA_REVENT_BIN 2> /dev/null
 	rm -f  $DESTDIR/etc/logrotate.d/pandora_agent
-	
+
+	# Remove systemd service if exists
+	if [ $(systemctl --v | grep systemd | wc -l) != 0 ]
+	then
+		PANDORA_AGENT_SERVICE="/etc/systemd/system/pandora_agent_daemon.service"
+		rm -f $PANDORA_AGENT_SERVICE
+		systemctl reset-failed
+	fi
+
 	#Test if exist Pandora Server in this machine
 	if [ -d $PANDORA_BASE$PANDORA_TEMP/data_in ]
 	then
@@ -381,8 +396,8 @@ install () {
 
 	ln -s $PANDORA_BASE_REAL$PANDORA_HOME/plugins $PANDORA_BASE$PANDORA_CFG
 
-	echo "Copying Pandora FMS Agent collections to $PANDORA_BASE$PANDORA_HOME/collections..."
-	cp -r collections $PANDORA_BASE$PANDORA_HOME
+	echo "Creating the collections directory in to $PANDORA_BASE$PANDORA_HOME/collections..."
+	mkdir -p $PANDORA_BASE$PANDORA_HOME/collections
 	chmod -R 700 $PANDORA_BASE$PANDORA_HOME/collections
 	ln -s $PANDORA_BASE_REAL$PANDORA_HOME/collections $PANDORA_BASE$PANDORA_CFG
 	
@@ -457,6 +472,22 @@ install () {
 				RCDIRS="/etc/rc.d/rc2.d /etc/rc.d/rc3.d"
 			else
 				RCDIRS="/etc/rc2.d /etc/rc3.d"
+			fi
+
+			# Create systemd service
+			if [ $(systemctl --v | grep systemd | wc -l) != 0 ]
+			then
+				echo "Creating systemd service for pandora_agent_daemon"
+
+				PANDORA_AGENT_SERVICE="/etc/systemd/system/pandora_agent_daemon.service"
+				EXEC_START='ExecStart='$PANDORA_BASE$PANDORA_BIN' '$PANDORA_BASE$PANDORA_CFG
+
+				rm -f $PANDORA_AGENT_SERVICE
+				cp pandora_agent_daemon.service $PANDORA_AGENT_SERVICE
+
+				sed -i "s|^ExecStart=.*$|$EXEC_START|g" $PANDORA_AGENT_SERVICE
+
+				systemctl daemon-reload
 			fi
 		fi
 		[ "$RCDIRS" ] && for RCDIR in $RCDIRS

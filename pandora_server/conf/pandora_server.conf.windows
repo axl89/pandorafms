@@ -164,10 +164,10 @@ network_threads 5
 # that ping should be 1 to report 1. Lower value have better performance, but more probability
 # of false positives
 
-icmp_checks 3
+icmp_checks 1
 
 # Number of ICMP packets to send per request.
-icmp_packets 1
+icmp_packets 2
 
 # tcp specific options :
 # tcp_checks: number of tcp retries if first attempt fails.
@@ -214,6 +214,7 @@ recon_threads 2
 dataserver_threads 2
 
 # mta_address: External Mailer (MTA) IP Address to be used by Pandora FMS internal email capabilities
+# If not set, the MTA configuration specified in the Pandora FMS Console will be used.
 
 #mta_address localhost
 
@@ -234,6 +235,10 @@ dataserver_threads 2
 # mta_from Email address that sends the mail, by default is pandora@localhost 
 #           probably you need to change it to avoid problems with your antispam
 #mta_from pandora@sampledomain.com
+
+# SMTP encryption protocol (none, ssl, starttls)
+
+#mta_encryption none
 
 # xprobe2: Optional package to detect OS types using advanced TCP/IP 
 # fingerprinting tecniques, much more accurates than stadard nmap.
@@ -260,6 +265,11 @@ dataserver_threads 2
 # will be dropped. We use the Group ID #10 (Unknown) for a "valid" default value, please change as your own decision.
 
 autocreate_group 10
+
+# If set to 1, new agents will be added to the group specified by autocreate_group (the group specified by the agent will be used as fallback).
+# If set to 0, new agents will be added to the group specified by the agent (the group specified by autocreate_group will be used as fallback).
+
+autocreate_group_force 1
 
 # Set to 1 if want to autocreate agents with Pandora FMS Data Server, 
 # set to 0 to disable
@@ -301,18 +311,9 @@ restart_delay 60
 
 #location_error 50
 
-# Recon reverse geolocation mode [disabled, sql, file]
-#   disabled    The recon task doesn't try to geolocate the ip discovered.
-#   sql         The recon task trys to query the SQL database to geolocate the 
-#               ip discovered
-#   file        The recon task trys to find the geolocation information of the 
-#               ip discovered in the file indicated in the 
-#                recon_reverse_geolocation_file parameter 
-
-# recon_reverse_geolocation_mode disabled
-
 # Recon reverse geolocation file. This is the database with the reverse 
 # geolocation information using MaxMind GPL GeoLiteCity.dat format).
+# Comment it to disable the IP geolocation on agent creation.
 
 #recon_reverse_geolocation_file /usr/local/share/GeoIP/GeoIPCity.dat
 
@@ -382,6 +383,10 @@ eventserver 0
 # Event Server event window in seconds (3600 by default) (PANDORA FMS ENTERPRISE ONLY).
 
 event_window 3600
+
+# If set to 1, an alert will not be fired if the last event it generated is in 'in-process' status.
+
+event_inhibit_alerts 0
 
 # Enable (1) or disable (0) Pandora FMS Enterprise ICMP Server (PANDORA FMS ENTERPRISE ONLY).
 # You need nmap 5.20 or higher in order to use this !
@@ -484,10 +489,17 @@ console_api_url http://localhost/pandora_console/include/api.php
 console_user admin
 
 # console_pass: Console password (pandora by default)
+# To make sure console_api_url, console_api_pass, console_user and console_pass are properly configured run:
+# 	curl "<console_api_url>?op=get&op2=test&apipass=<console_api_pass>&user=<console_user>&pass=<console_pass>"
+# It should return a string similar to:
+# 	OK,{VERSION},{BUILD}
 console_pass pandora
 
 # Passphrase used to generate the key for password encryption (PANDORA FMS ENTERPRISE ONLY).
 #encryption_passphrase passphrase
+
+# Enable (1) or disable (0) events related to the unknown module status.
+unknown_events 1
 
 # Time interval (as a multiple of the module interval) before a module becomes unknown. Twice the module's interval by default.
 #unknown_interval 2
@@ -515,4 +527,11 @@ warmup_event_interval 0
 # keepalive modules will not be updated for the specified number of seconds
 # since the server starts up. 
 warmup_unknown_interval 300
+
+# Directory were additional enc files for the XML parser are located.
+enc_dir /usr/share/pandora_server/enc/
+
+# The number of times dynamic_min and dynamic_max will be recalculated per dynamic_interval.
+# Go to http://wiki.pandorafms.com/ for more information.
+dynamic_updates 5
 

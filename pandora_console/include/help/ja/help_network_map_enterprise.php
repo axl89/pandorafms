@@ -1,12 +1,12 @@
 <?php
 /*
-* @package Include/ja
-*/
+ * @package Include/ja
+ */
 ?>
 
 <h1>ネットワークマップコンソール</h1>
 
-<p>Pandora FMS Enterprise では、編集可能なネットワークマップを作成することができます。ネットワーク参照メニューにあるオープンソース版のものと比べるとより対話形式になっています。</p>
+<p><?php echo get_product_name(); ?> Enterprise では、編集可能なネットワークマップを作成することができます。ネットワーク参照メニューにあるオープンソース版のものと比べるとより対話形式になっています。</p>
 
 <p>オープンソース版に対して Enterprise 版のネットワークマップでは、次のような機能があります。</p>
 
@@ -48,7 +48,7 @@
 <p>コントロールパネルからは、ネットワークマップのより複雑な操作ができます。</p>
 
 <p>これは右上に隠れています。ミニマップと同様に、矢印をクリックすることで表示できます。</p>
-<?php html_print_image ("images/help/netmap1.png", false, array('width' => '550px')); ?>
+<?php html_print_image('images/help/netmap1.png', false, ['width' => '550px']); ?>
 
 <p>操作オプションは次の通りです。</p>
 
@@ -66,12 +66,12 @@
 <p>詳細表示ウインドウは、一つのエージェントのビジュアル表示です。開いたマップと同じ頻度で更新されます。個々のウインドウは完全に独立しているため、複数のウインドウを開くことができます。</p>
 
 
-<?php html_print_image ("images/help/netmap2.png", false, array('width' => '550px')); ?><br><br>
+<?php html_print_image('images/help/netmap2.png', false, ['width' => '550px']); ?><br><br>
 
 
 
     <p>エージェントの状態と同じ色の枠で表示されます。<br>
-    エージェント名は、Pandora のエージェントのページへのリンクになっています。<br>
+    エージェント名は、<?php echo get_product_name(); ?> のエージェントのページへのリンクになっています。<br>
     ウインドウ内には、不明状態ではないすべてのモジュールが、緑や赤といったモジュールの状態に応じて表示されます。<br>
         モジュールをクリックすると、モジュールのメインデータと共に簡単な説明が表示されます。<br>
     枠の中には、SNMP Proc のモジュールがあります。ネットワーク機器関連のエージェントで、ネットワークインタフェースの監視に使われます。<br></p>
@@ -80,7 +80,7 @@
 </h2>
 <p>仮想ポイントの詳細を表示すると、仮想ポイントを編集するためのオプションパレットをポップアップウインドウで表示します。</p>
 
-<?php html_print_image ("images/help/netmap3.png", false, array('width' => '550px')); ?><br><br>
+<?php html_print_image('images/help/netmap3.png', false, ['width' => '550px']); ?><br><br>
 
 
 <p>次のオプションのフォームがあります。</p>
@@ -113,6 +113,3 @@
     <li><b>ネットワークマップ更新(Networkmap Refresh):</b> ネットワークマップに含まれるノードの状態の更新間隔です。デフォルトは 5分です。</p>
 
 残りのフィールドは無効になっています。例えば、"マップのリサイズ(resizing map)"は、マップが作成された後にのみ有効になります。<br><br>
-
-
-マップ編集の詳細については、<a href="http://www.openideas.info/wiki/index.php?title=Pandora:Documentation_ja:Data_Presentation#.E3.82.A8.E3.83.B3.E3.82.BF.E3.83.BC.E3.83.97.E3.83.A9.E3.82.A4.E3.82.BA.E7.89.88.E3.81.AE.E3.83.8D.E3.83.83.E3.83.88.E3.83.AF.E3.83.BC.E3.82.AF.E3.83.9E.E3.83.83.E3.83.97.E3.82.B3.E3.83.B3.E3.82.BD.E3.83.BC.E3.83.AB">公式ドキュメント(エンタープライズ版のネットワークマップコンソール)</a> を参照してください。

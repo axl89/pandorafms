@@ -81,7 +81,7 @@ sub run ($) {
 	my $self = shift;
 	my $pa_config = $self->getConfig ();
 
-	print_message ($pa_config, " [*] Starting Pandora FMS Plugin Server.", 1);
+	print_message ($pa_config, " [*] Starting " . $pa_config->{'rb_product_name'} . " Plugin Server.", 1);
 	$self->setNumThreads ($pa_config->{'plugin_threads'});
 	$self->SUPER::run (\@TaskQueue, \%PendingTasks, $Sem, $TaskSem);
 }
@@ -153,7 +153,7 @@ sub data_consumer ($$) {
 	return unless defined $agent;
 
 	# Use the smallest timeout
-	my $timeout = (($plugin->{'max_timeout'} < $pa_config->{'plugin_timeout'}) && $pa_config->{'max_timeout'}) ?
+	my $timeout = (($plugin->{'max_timeout'} < $pa_config->{'plugin_timeout'}) && $plugin->{'max_timeout'}) ?
 				   $plugin->{'max_timeout'} : $pa_config->{'plugin_timeout'};
 
 	# Setting default timeout if is invalid
@@ -215,10 +215,12 @@ sub data_consumer ($$) {
 	}
 	
 	# Agent and module macros
-	my %macros = (_agent_ => (defined ($agent)) ? $agent->{'nombre'} : '',
+	my %macros = (_agent_ => (defined ($agent)) ? $agent->{'alias'} : '',
+				_agentalias_ => (defined ($agent)) ? $agent->{'alias'} : '',
 				_agentdescription_ => (defined ($agent)) ? $agent->{'comentarios'} : '',
 				_agentstatus_ => undef,
 				_agentgroup_ => (defined ($group)) ? $group->{'nombre'} : '',
+				_agentname_ => (defined ($agent)) ? $agent->{'nombre'} : '',
 				_address_ => (defined ($agent)) ? $agent->{'direccion'} : '',
 				_module_ => (defined ($module)) ? $module->{'nombre'} : '',
 				_modulegroup_ => undef,
@@ -235,6 +237,7 @@ sub data_consumer ($$) {
 				_email_tag_ => undef,
 				_phone_tag_ => undef,
 				_name_tag_ => undef,
+				'_agentcustomfield_\d+_' => undef,
 	);
 	$parameters = subst_alert_macros ($parameters, \%macros, $pa_config, $dbh, $agent, $module);
 
@@ -295,9 +298,15 @@ sub data_consumer ($$) {
 			}
 		}
 	}
-
 	if (! defined $module_data || $module_data eq '') {
-		logger ($pa_config,"[ERROR] Undefined value returned by plug-in module " . $agent->{'nombre'} . " agent " . $agent->{'nombre'} . ". Is the server out of memory?" , 3);
+		logger (
+			$pa_config,
+			sprintf(
+				"[ERROR] Undefined value returned by plug-in module '%s' in agent whith name '%s' and alias '%s'. Is the server out of memory?",
+				$module->{'nombre'}, $agent->{'nombre'}, $agent->{'alias'}
+			),
+			3
+		);
 		pandora_update_module_on_error ($pa_config, $module, $dbh);
 		return;
 	}
@@ -313,7 +322,7 @@ sub data_consumer ($$) {
 		$agent_os_version = $pa_config->{'servername'}.'_Plugin';
 	}
 
-	pandora_update_agent ($pa_config, $timestamp, $module->{'id_agente'}, $agent_os_version, $pa_config->{'version'}, -1, $dbh);
+	pandora_update_agent ($pa_config, $timestamp, $module->{'id_agente'}, undef, undef, -1, $dbh);
 }
 
 1;

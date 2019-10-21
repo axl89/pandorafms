@@ -21,6 +21,7 @@ use JSON qw(decode_json encode_json);
 use MIME::Base64;
 use Encode qw(decode encode_utf8);
 use LWP::Simple;
+use Data::Dumper;
 
 # Default lib dir for RPM and DEB packages
 use lib '/usr/lib/perl5';
@@ -35,7 +36,7 @@ use Encode::Locale;
 Encode::Locale::decode_argv;
 
 # version: define current version
-my $version = "6.1dev PS160921";
+my $version = "7.0NG.739 PS191021";
 
 # save program name for logging
 my $progname = basename($0);
@@ -102,7 +103,7 @@ sub help_screen{
 	print "Available options by category:\n\n" unless $param ne '';
 	print "Available options for $param:\n\n" unless $param eq '';
 	print "AGENTS:\n\n" unless $param ne '';
-	help_screen_line('--create_agent', "<agent_name> <operating_system> <group> <server_name> \n\t  [<address> <description> <interval>]", 'Create agent');
+	help_screen_line('--create_agent', "<agent_name> <operating_system> <group> <server_name> \n\t  [<address> <description> <interval> <alias_as_name>]", 'Create agent');
 	help_screen_line('--update_agent', '<agent_name> <field_to_change> <new_value>', "Update an agent field. The fields can be \n\t  the following: agent_name, address, description, group_name, interval, os_name, disabled (0-1), \n\t  parent_name, cascade_protection (0-1), icon_path, update_gis_data (0-1), custom_id");
 	help_screen_line('--delete_agent', '<agent_name>', 'Delete agent');
 	help_screen_line('--disable_group', '<group_name>', 'Disable agents from an entire group');
@@ -111,7 +112,7 @@ sub help_screen{
 	help_screen_line('--delete_group', '<group_name>', 'Delete an agent group');
 	help_screen_line('--update_group', '<group_id>','[<group_name> <parent_group_name> <icon> <description>]', 'Update an agent group');
 	help_screen_line('--stop_downtime', '<downtime_name>', 'Stop a planned downtime');
-	help_screen_line('--create_downtime', "<downtime_name> <description> <date_from> <date_to> <id_group> <monday> <tuesday>\n\t <wednesday> <thursday> <friday> <saturday> <sunday> <periodically_time_from>\n\t <periodically_time_to> <periodically_day_from> <periodically_day_to> <type_downtime> <type_execution> <type_periodicity>", 'Create a planned downtime');
+	help_screen_line('--create_downtime', "<downtime_name> <description> <date_from> <date_to> <id_group> <monday> <tuesday>\n\t <wednesday> <thursday> <friday> <saturday> <sunday> <periodically_time_from>\n\t <periodically_time_to> <periodically_day_from> <periodically_day_to> <type_downtime> <type_execution> <type_periodicity> <id_user>", 'Create a planned downtime');
 	help_screen_line('--add_item_planned_downtime', "<id_downtime> <id_agente1,id_agente2,id_agente3...id_agenteN> <name_module1,name_module2,name_module3...name_moduleN> ", 'Add a items planned downtime');
 	help_screen_line('--get_all_planned_downtimes', '<name> [<id_group> <type_downtime> <type_execution> <type_periodicity>]', 'Get all planned downtime');
 	help_screen_line('--get_planned_downtimes_items', '<name> [<id_group> <type_downtime> <type_execution> <type_periodicity>]', 'Get all items of planned downtimes');
@@ -125,12 +126,28 @@ sub help_screen{
 	help_screen_line('--clean_conf_file', '<agent_name>', "Clean a local conf of a given agent deleting all modules, \n\t  policies, file collections and comments");
 	help_screen_line('--get_bad_conf_files', '', 'Get the files bad configured (without essential tokens)');
 	help_screen_line('--locate_agent', '<agent_name>', 'Search a agent into of nodes of metaconsole. Only Enterprise.');
+	help_screen_line('--migration_agent_queue', '<id_node> <source_node_name> <target_node_name> [<db_only>]', 'Migrate agent only metaconsole');
+	help_screen_line('--migration_agent', '<id_node> ', 'Is migrating the agent only metaconsole');
+	help_screen_line('--apply_module_template', '<id_template> <id_agent>', 'Apply module template to agent');	
+	help_screen_line('--new_cluster', '<cluster_name> <cluster_type> <description> <group_id> ', 'Creating a new cluster');
+	help_screen_line('--add_cluster_agent', '<json_data:[{"id":5,"id_agent":2},{"id":5,"id_agent":3}]>', 'Adding agent to cluster');
+	help_screen_line('--add_cluster_item', '<json_data:[{"name":"Swap_Used","id_cluster":5,"type":"AA","critical_limit":80,"warning_limit":60},{"name":"TCP_Connections","id_cluster":5,"type":"AA","critical_limit":80,"warning_limit":60}]> ', 'Adding item to cluster');
+	help_screen_line('--delete_cluster', '<id_cluster>', 'Deleting cluster');
+	help_screen_line('--delete_cluster_agent', '<id_agent> <id_cluster>', 'Deleting cluster agent');
+	help_screen_line('--delete_cluster_item', '<id_item>', 'Deleting cluster item');
+	help_screen_line('--get_cluster_status', '<id_cluster>', 'Getting cluster status');
+	help_screen_line('--set_disabled_and_standby', '<id_agent> <id_node> <value>', 'Overwrite and disable and standby status');
+	help_screen_line('--reset_agent_counts', '<id_agent>', 'Resets module counts and alert counts in the agents');
 	print "\nMODULES:\n\n" unless $param ne '';
-	help_screen_line('--create_data_module', "<module_name> <module_type> <agent_name> [<description> <module_group> \n\t  <min> <max> <post_process> <interval> <warning_min> <warning_max> <critical_min> <critical_max> \n\t <history_data> <definition_file> <warning_str> <critical_str>\n\t  <unknown_events> <ff_threshold> <each_ff> <ff_threshold_normal>\n\t  <ff_threshold_warning> <ff_threshold_critical> <ff_timeout> <warning_inverse> <critical_inverse> ]", 'Add data server module to agent');
-	help_screen_line('--create_network_module', "<module_name> <module_type> <agent_name> <module_address> \n\t  [<module_port> <description> <module_group> <min> <max> <post_process> <interval> \n\t  <warning_min> <warning_max> <critical_min> <critical_max> <history_data> <ff_threshold>\n\t  <warning_str> <critical_str> <unknown_events> <each_ff>\n\t  <ff_threshold_normal> <ff_threshold_warning> <ff_threshold_critical> <timeout> <retries>]", 'Add not snmp network module to agent');
-	help_screen_line('--create_snmp_module', "<module_name> <module_type> <agent_name> <module_address> <module_port>\n\t  <version> [<community> <oid> <description> <module_group> <min> <max> <post_process> <interval>\n\t   <warning_min> <warning_max> <critical_min> <critical_max> <history_data> \n\t  <snmp3_priv_method> <snmp3_priv_pass> <snmp3_sec_level> <snmp3_auth_method> \n\t  <snmp3_auth_user> <snmp3_priv_pass> <ff_threshold> <warning_str> \n\t  <critical_str> <unknown_events> <each_ff> <ff_threshold_normal>\n\t  <ff_threshold_warning> <ff_threshold_critical> <timeout> <retries>]", 'Add snmp network module to agent');
-	help_screen_line('--create_plugin_module', "<module_name> <module_type> <agent_name> <module_address> \n\t  <module_port> <plugin_name> <user> <password> <parameters> [<description> \n\t  <module_group> <min> <max> <post_process> <interval> <warning_min> <warning_max> <critical_min> \n\t  <critical_max> <history_data> <ff_threshold> <warning_str> <critical_str>\n\t  <unknown_events> <each_ff> <ff_threshold_normal> <ff_threshold_warning>\n\t  <ff_threshold_critical> <timeout>]", 'Add plug-in module to agent');
+	help_screen_line('--create_data_module', "<module_name> <module_type> <agent_name> [<description> <module_group> \n\t  <min> <max> <post_process> <interval> <warning_min> <warning_max> <critical_min> <critical_max> \n\t <history_data> <definition_file> <warning_str> <critical_str>\n\t  <unknown_events> <ff_threshold> <each_ff> <ff_threshold_normal>\n\t  <ff_threshold_warning> <ff_threshold_critical> <ff_timeout> <warning_inverse> <critical_inverse>\n\t <critical_instructions> <warning_instructions> <unknown_instructions>]", 'Add data server module to agent');
+	help_screen_line('--create_web_module', "<module_name> <module_type> <agent_name> [<description> <module_group> \n\t  <min> <max> <post_process> <interval> <warning_min> <warning_max> <critical_min> <critical_max> \n\t <history_data> <retries> <requests> <agent_browser_id> <auth_server> <auth_realm> <definition_file>\n\t <proxy_url> <proxy_auth_login> <proxy_auth_password> <warning_str> <critical_str>\n\t  <unknown_events> <ff_threshold> <each_ff> <ff_threshold_normal>\n\t  <ff_threshold_warning> <ff_threshold_critical> <ff_timeout> <warning_inverse> <critical_inverse>\n\t <critical_instructions> <warning_instructions> <unknown_instructions>].\n\t The valid data types are web_data, web_proc, web_content_data or web_content_string", 'Add web server module to agent');
+	help_screen_line('--create_network_module', "<module_name> <module_type> <agent_name> <module_address> \n\t  [<module_port> <description> <module_group> <min> <max> <post_process> <interval> \n\t  <warning_min> <warning_max> <critical_min> <critical_max> <history_data> <ff_threshold>\n\t  <warning_str> <critical_str> <unknown_events> <each_ff>\n\t  <ff_threshold_normal> <ff_threshold_warning> <ff_threshold_critical> <timeout> <retries>\n\t <critical_instructions> <warning_instructions> <unknown_instructions>\n\t <warning_inverse> <critical_inverse>]", 'Add not snmp network module to agent');
+	help_screen_line('--create_snmp_module', "<module_name> <module_type> <agent_name> <module_address> <module_port>\n\t  <version> [<community> <oid> <description> <module_group> <min> <max> <post_process> <interval>\n\t   <warning_min> <warning_max> <critical_min> <critical_max> <history_data> \n\t  <snmp3_priv_method> <snmp3_priv_pass> <snmp3_sec_level> <snmp3_auth_method> \n\t  <snmp3_auth_user> <snmp3_auth_pass> <ff_threshold> <warning_str> \n\t  <critical_str> <unknown_events> <each_ff> <ff_threshold_normal>\n\t  <ff_threshold_warning> <ff_threshold_critical> <timeout> <retries>
+	\n\t <critical_instructions> <warning_instructions> <unknown_instructions>\n\t <warning_inverse> <critical_inverse>]", 'Add snmp network module to agent');
+	help_screen_line('--create_plugin_module', "<module_name> <module_type> <agent_name> <module_address> \n\t  <module_port> <plugin_name> <user> <password> <parameters> [<description> \n\t  <module_group> <min> <max> <post_process> <interval> <warning_min> <warning_max> <critical_min> \n\t  <critical_max> <history_data> <ff_threshold> <warning_str> <critical_str>\n\t  <unknown_events> <each_ff> <ff_threshold_normal> <ff_threshold_warning>\n\t  <ff_threshold_critical> <timeout> \n\t <critical_instructions> <warning_instructions> <unknown_instructions>\n\t <warning_inverse> <critical_inverse>]", 'Add plug-in module to agent');
+    help_screen_line('--get_module_group', '[<module_group_name>]', 'Dysplay all module groups');
     help_screen_line('--create_module_group', '<module_group_name>');
+    help_screen_line('--module_group_synch', "<server_name1|server_name2|server_name3...> [<return_type>]", 'Synchronize metaconsole module groups');
 	help_screen_line('--delete_module', 'Delete module from agent', '<module_name> <agent_name>');
     help_screen_line('--data_module', "<server_name> <agent_name> <module_name> \n\t  <module_type> <module_new_data> [<datetime>]", 'Insert data to module');
     help_screen_line('--get_module_data', "<agent_name> <module_name> <interval> [<csv_separator>]", "\n\t  Show the data of a module in the last X seconds (interval) in CSV format");
@@ -138,6 +155,7 @@ sub help_screen{
 	help_screen_line('--update_module', '<module_name> <agent_name> <field_to_change> <new_value>', 'Update a module field');
     help_screen_line('--get_agents_module_current_data', '<module_name>', "Get the agent and current data \n\t  of all the modules with a given name");
 	help_screen_line('--create_network_module_from_component', '<agent_name> <component_name>', "Create a new network \n\t  module from a network component");
+	help_screen_line('--create_network_component', "<network_component_name> <network_component_group> <network_component_type> \n\t [<description> <module_interval> <max_value> <min_value> \n\t <snmp_community> <id_module_group> <max_timeout> \n\t <history_data> <min_warning> <max_warning> \n\t <str_warning> <min_critical> <max_critical> \n\t <str_critical> <min_ff_event> <post_process> \n\t <disabled_types_event> <each_ff> <min_ff_event_normal> \n\t <min_ff_event_warning> <min_ff_event_critical>]", "Create a new network component");	
 	help_screen_line('--create_synthetic', "<module_name> <synthetic_type> <agent_name> <source_agent1>,<operation>,<source_module1>|<source_agent1>,<source_module1> \n\t [ <operation>,<fixed_value> | <source agent2>,<operation>,<source_module2> ]", "Create a new Synthetic module");
 	print "\nALERTS:\n\n" unless $param ne '';
     help_screen_line('--create_template_module', '<template_name> <module_name> <agent_name>', 'Add alert template to module');
@@ -148,6 +166,10 @@ sub help_screen{
 	help_screen_line('--enable_alerts', '', 'Enable alerts in all groups (system wide)');
 	help_screen_line('--create_alert_template', "<template_name> <condition_type_serialized>\n\t   <time_from> <time_to> [<description> <group_name> <field1> <field2> \n\t  <field3> <priority>  <default_action> <days> <time_threshold> <min_alerts> \n\t  <max_alerts> <alert_recovery> <field2_recovery> <field3_recovery> \n\t  <condition_type_separator>]", 'Create alert template');
 	help_screen_line('--delete_alert_template', '<template_name>', 'Delete alert template');
+	help_screen_line('--create_alert_command', "<command_name> <comand> [<id_group> <description> \n\t <internal> <fields_descriptions> <fields_values>", 'Create alert command');
+	help_screen_line('--get_alert_commands', "[<command_name> <comand> <id_group> <description> \n\t <internal>]", 'Displays all alert commands');
+	help_screen_line('--get_alert_actions', '[<action_name> <separator> <return_type>]', 'get all alert actions');
+	help_screen_line('--get_alert_actions_meta', '[<server_name> <action_name> <separator> <return_type>]', 'get all alert actions in nodes');
 	help_screen_line('--update_alert_template', "<template_name> <field_to_change> \n\t  <new_value>", 'Update a field of an alert template');
 	help_screen_line('--validate_all_alerts', '', 'Validate all the alerts');
 	help_screen_line('--create_special_day', "<special_day> <same_day> <description> <group>", 'Create special day');
@@ -159,7 +181,7 @@ sub help_screen{
 	print "\nUSERS:\n\n" unless $param ne '';
 	help_screen_line('--create_user', '<user_name> <user_password> <is_admin> [<comments>]', 'Create user');
 	help_screen_line('--delete_user', '<user_name>', 'Delete user');
-	help_screen_line('--update_user', '<user_id> <field_to_change> <new_value>', "Update a user field. The fields\n\t   can be the following: email, phone, is_admin (0-1), language, id_skin, flash_chart (0-1)\n\t  , comments, fullname, password");
+	help_screen_line('--update_user', '<user_id> <field_to_change> <new_value>', "Update a user field. The fields\n\t   can be the following: email, phone, is_admin (0-1), language, id_skin, comments, fullname, password");
 	help_screen_line('--enable_user', '<user_id>', 'Enable a given user');
 	help_screen_line('--disable_user', '<user_id>', 'Disable a given user');
 	help_screen_line('--add_profile', '<user_name> <profile_name> <group_name>', 'Add perfil to user');
@@ -169,25 +191,29 @@ sub help_screen{
 	help_screen_line('--disable_eacl', '', 'Disable enterprise ACL system');
 	help_screen_line('--enable_eacl', '', 'Enable enterprise ACL system');
 	help_screen_line('--disable_double_auth', '<user_name>', 'Disable the double authentication for the specified user');
+	help_screen_line('--meta_synch_user', "<user_name1,user_name2..> <server_name> [<profile_mode> <group_name>\n\t <profile1,profile2..> <create_groups>]", 'Synchronize metaconsole users');
 	print "\nEVENTS:\n\n" unless $param ne '';
-	help_screen_line('--create_event', "<event> <event_type> <group_name> [<agent_name> <module_name>\n\t   <event_status> <severity> <template_name> <user_name> <comment> \n\t  <source> <id_extra> <tags> <custom_data_json>]", 'Add event');
-    help_screen_line('--validate_event', "<agent_name> <module_name> <datetime_min> <datetime_max>\n\t   <user_name> <criticity> <template_name>", 'Validate events');
-    help_screen_line('--validate_event_id', '<event_id>', 'Validate event given a event id');
-    help_screen_line('--get_event_info', '<event_id>[<csv_separator>]', 'Show info about a event given a event id');
-    help_screen_line('--add_event_comment', '<event_id> <user_name> <comment>', 'Add event\'s comment');
+	help_screen_line('--create_event', "<event> <event_type> <group_name> [<agent_name> <module_name>\n\t   <event_status> <severity> <template_name> <user_name> <comment> \n\t  <source> <id_extra> <tags> <critical_instructions> <warning_instructions> <unknown_instructions> \n\t <custom_data_json> <force_create_agent>]", 'Add event');
+  help_screen_line('--validate_event', "<agent_name> <module_name> <datetime_min> <datetime_max>\n\t   <user_name> <criticity> <template_name>", 'Validate events');
+  help_screen_line('--validate_event_id', '<event_id>', 'Validate event given a event id');
+  help_screen_line('--get_event_info', '<event_id>[<csv_separator>]', 'Show info about a event given a event id');
+  help_screen_line('--add_event_comment', '<event_id> <user_name> <comment>', 'Add event\'s comment');
 	print "\nINCIDENTS:\n\n" unless $param ne '';
 	help_screen_line('--create_incident', "<title> <description> <origin> <status> <priority 0 for Informative, \n\t  1 for Low, 2 for Medium, 3 for Serious, 4 for Very serious or 5 for Maintenance>\n\t   <group> [<owner>]", 'Create incidents');
 	print "\nPOLICIES:\n\n" unless $param ne '';
-	help_screen_line('--apply_policy', '<policy_name>', 'Force apply a policy');
+	help_screen_line('--apply_policy', '<id_policy> [<id_agent> <name(boolean)> <id_server>]', 'Force apply a policy in an agent');
 	help_screen_line('--apply_all_policies', '', 'Force apply to all the policies');
 	help_screen_line('--add_agent_to_policy', '<agent_name> <policy_name>', 'Add an agent to a policy');
+	help_screen_line('--remove_agent_from_policy', '<policy_id> <agent_id>', 'Delete an agent to a policy');
 	help_screen_line('--delete_not_policy_modules', '', 'Delete all modules without policy from configuration file');
 	help_screen_line('--disable_policy_alerts', '<policy_name>', 'Disable all the alerts of a policy');
 	help_screen_line('--create_policy', '<policy_name> <group_name> <description>');
-	help_screen_line('--create_policy_data_module', "<policy_name> <module_name> <module_type> [<description> \n\t  <module_group> <min> <max> <post_process> <interval> <warning_min> <warning_max> \n\t  <critical_min> <critical_max> <history_data> <data_configuration> <warning_str> \n\t  <critical_str> <unknown_events> <ff_threshold> <each_ff>\n\t  <ff_threshold_normal> <ff_threshold_warning> <ff_threshold_critical>\n\t  <ff_timeout>]", 'Add data server module to policy');
-	help_screen_line('--create_policy_network_module', "<policy_name> <module_name> <module_type> [<module_port> \n\t  <description> <module_group> <min> <max> <post_process> <interval> \n\t  <warning_min> <warning_max> <critical_min> <critical_max> <history_data> <ff_threshold> \n\t  <warning_str> <critical_str> <unknown_events> <each_ff>\n\t  <ff_threshold_normal> <ff_threshold_warning> <ff_threshold_critical>]", "Add not snmp network module to policy");
-	help_screen_line('--create_policy_snmp_module', "<policy_name> <module_name> <module_type> <module_port> \n\t  <version> [<community> <oid> <description> <module_group> <min> <max> \n\t  <post_process> <interval> <warning_min> <warning_max> <critical_min> <critical_max> <history_data>\n\t   <snmp3_priv_method> <snmp3_priv_pass> <snmp3_sec_level> <snmp3_auth_method> <snmp3_auth_user> \n\t  <snmp3_priv_pass> <ff_threshold> <warning_str> <critical_str>\n\t  <unknown_events> <each_ff> <ff_threshold_normal>\n\t  <ff_threshold_warning> <ff_threshold_critical>]", 'Add snmp network module to policy');
-	help_screen_line('--create_policy_plugin_module', "<policy_name> <module_name> <module_type> \n\t  <module_port> <plugin_name> <user> <password> <parameters> [<description> <module_group> <min> \n\t  <max> <post_process> <interval> <warning_min> <warning_max> <critical_min> <critical_max>\n\t  <history_data> <ff_threshold> <warning_str> <critical_str>\n\t  <unknown_events> <each_ff> <ff_threshold_normal>\n\t  <ff_threshold_warning> <ff_threshold_critical>]", 'Add plug-in module to policy');
+	help_screen_line('--create_policy_data_module', "<policy_name> <module_name> <module_type> [<description> \n\t  <module_group> <min> <max> <post_process> <interval> <warning_min> <warning_max> \n\t  <critical_min> <critical_max> <history_data> <data_configuration> <warning_str> \n\t  <critical_str> <unknown_events> <ff_threshold> <each_ff>\n\t  <ff_threshold_normal> <ff_threshold_warning> <ff_threshold_critical>\n\t  <ff_timeout> <critical_instructions> <warning_instructions> <unknown_instructions>\n\t <warning_inverse> <critical_inverse>]", 'Add data server module to policy');
+	help_screen_line('--create_policy_web_module', "<policy_name> <module_name> <module_type> [<description> \n\t  <module_group> <min> <max> <post_process> <interval> <warning_min> <warning_max> \n\t  <critical_min> <critical_max> <history_data> <retries> <requests> <agent_browser_id> <auth_server> <auth_realm> <data_configuration> <proxy_url> <proxy_auth_login> <proxy_auth_password> <warning_str> \n\t  <critical_str> <unknown_events> <ff_threshold> <each_ff>\n\t  <ff_threshold_normal> <ff_threshold_warning> <ff_threshold_critical>\n\t  <ff_timeout> <warning_inverse> <critical_inverse> <critical_instructions> <warning_instructions> <unknown_instructions>].\n\t The valid data types are web_data, web_proc, web_content_data or web_content_string", 'Add web server module to policy');
+	help_screen_line('--create_policy_network_module', "<policy_name> <module_name> <module_type> [<module_port> \n\t  <description> <module_group> <min> <max> <post_process> <interval> \n\t  <warning_min> <warning_max> <critical_min> <critical_max> <history_data> <ff_threshold> \n\t  <warning_str> <critical_str> <unknown_events> <each_ff>\n\t  <ff_threshold_normal> <ff_threshold_warning> <ff_threshold_critical>\n\t <critical_instructions> <warning_instructions> <unknown_instructions>\n\t <warning_inverse> <critical_inverse>]", "Add not snmp network module to policy");
+	help_screen_line('--create_policy_snmp_module', "<policy_name> <module_name> <module_type> <module_port> \n\t  <version> [<community> <oid> <description> <module_group> <min> <max> \n\t  <post_process> <interval> <warning_min> <warning_max> <critical_min> <critical_max> <history_data>\n\t   <snmp3_priv_method> <snmp3_priv_pass> <snmp3_sec_level> <snmp3_auth_method> <snmp3_auth_user> \n\t  <snmp3_priv_pass> <ff_threshold> <warning_str> <critical_str>\n\t  <unknown_events> <each_ff> <ff_threshold_normal>\n\t  <ff_threshold_warning> <ff_threshold_critical>\n\t 
+	<critical_instructions> <warning_instructions> <unknown_instructions>\n\t <warning_inverse> <critical_inverse>]", 'Add snmp network module to policy');
+	help_screen_line('--create_policy_plugin_module', "<policy_name> <module_name> <module_type> \n\t  <module_port> <plugin_name> <user> <password> <parameters> [<description> <module_group> <min> \n\t  <max> <post_process> <interval> <warning_min> <warning_max> <critical_min> <critical_max>\n\t  <history_data> <ff_threshold> <warning_str> <critical_str>\n\t  <unknown_events> <each_ff> <ff_threshold_normal>\n\t  <ff_threshold_warning> <ff_threshold_critical>\n\t <critical_instructions> <warning_instructions> <unknown_instructions>\n\t <warning_inverse> <critical_inverse>]", 'Add plug-in module to policy');
 	help_screen_line('--create_policy_data_module_from_local_component', '<policy_name> <component_name>');
 	help_screen_line('--add_collection_to_policy', "<policy_name> <collection_name>");
 	help_screen_line('--validate_policy_alerts', '<policy_name>', 'Validate the alerts of a given policy');
@@ -207,7 +233,16 @@ sub help_screen{
     help_screen_line('--create_tag', '<tag_name> <tag_description> [<tag_url>] [<tag_email>]', 'Create a new tag');
     help_screen_line('--add_tag_to_user_profile', '<user_id> <tag_name> <group_name> <profile_name>', 'Add a tag to the given user profile');
     help_screen_line('--add_tag_to_module', '<agent_name> <module_name> <tag_name>', 'Add a tag to the given module');
-	
+
+	print "\nVISUAL CONSOLES\n\n" unless $param ne '';
+	help_screen_line('--create_visual_console', '<name> <background> <width> <height> <group> <mode> [<position_to_locate_elements>] [<background_color>] [<elements>]', 'Create a new visual console');
+	help_screen_line('--edit_visual_console', '<id> [<name>] [<background>] [<width>] [<height>] [<group>] [<mode>] [<position_to_locate_elements>] [<background_color>] [<elements>]', 'Edit a visual console');
+	help_screen_line('--delete_visual_console', '<id>', 'Delete a visual console');
+	help_screen_line('--delete_visual_console_objects', '<id> <mode> <id_mode>', 'Delete a visual console elements');
+	help_screen_line('--duplicate_visual_console', '<id> <times> [<prefix>]', 'Duplicate a visual console');
+	help_screen_line('--export_json_visual_console', '<id> [<path>] [<with_element_id>]', 'Creates a json with the visual console elements information');
+
+
 	print "\n";
 	exit;
 }
@@ -215,8 +250,8 @@ sub help_screen{
 ########################################################################
 # 
 ########################################################################
-sub api_call($$$;$$$) {
-	my ($pa_config, $op, $op2, $id, $id2, $other) = @_;
+sub api_call($$$;$$$$) {
+	my ($pa_config, $op, $op2, $id, $id2, $other, $return_type) = @_;
 	my $content = undef;
 	
 	eval {
@@ -230,6 +265,7 @@ sub api_call($$$;$$$) {
 		$params->{"id"} = $id;
 		$params->{"id2"} = $id2;
 		$params->{"other"} = $other;
+		$params->{"return_type"} = $return_type;
 		$params->{"other_mode"} = "url_encode_separator_|";
 		
 		# Call the API.
@@ -248,19 +284,94 @@ sub api_call($$$;$$$) {
 	return $content;
 }
 
+
+###############################################################################
+# Update token conf file agent
+###############################################################################
+sub update_conf_txt ($$$$) {
+	my ($conf, $agent_name, $token, $value) = @_;
+
+	# Read the conf of each agent.
+	my $conf_file_txt = enterprise_hook(
+		'read_agent_conf_file',
+		[
+			$conf,
+			$agent_name
+		]
+	);
+
+	# Check if there is agent conf.
+	if(!$conf_file_txt){
+		return 0;
+	}
+
+	my $updated = 0;
+	my $txt_content = "";
+
+	my @lines = split /\n/, $conf_file_txt;
+
+	foreach my $line (@lines) {
+		if ($line =~ /^\s*$token\s/ || $line =~ /^#$token\s/ || $line =~ /^#\s$token\s/) {
+			$txt_content .= $token.' '.$value."\n";
+			$updated = 1;
+		} else {
+			$txt_content .= $line."\n";
+		}
+	}
+
+	if ($updated == 0) {
+		$txt_content .= "\n$token $value\n";
+	}
+
+	# Write the conf.
+	my $result = enterprise_hook(
+		'write_agent_conf_file',
+		[
+			$conf,
+			$agent_name,
+			$txt_content
+		]
+	);
+
+	return $result;
+}
+
+
 ###############################################################################
 # Disable a entire group
 ###############################################################################
 sub pandora_disable_group ($$$) {
     my ($conf, $dbh, $group) = @_;
 
+	my @agents_bd = [];
+	my $result = 0;
+
 	if ($group == 0){
+		# Extract all the names of the pandora agents if it is for all = 0.
+		@agents_bd = get_db_rows ($dbh, 'SELECT nombre FROM tagente');
+
+		# Update bbdd.
 		db_do ($dbh, "UPDATE tagente SET disabled = 1");
 	}
 	else {
+		# Extract all the names of the pandora agents if it is for group.
+		@agents_bd = get_db_rows ($dbh, 'SELECT nombre FROM tagente WHERE id_grupo = ?', $group);
+
+		# Update bbdd.
 		db_do ($dbh, "UPDATE tagente SET disabled = 1 WHERE id_grupo = $group");
 	}
-    exit;
+
+	foreach my $name_agent (@agents_bd) {
+		# Check the standby field I put it to 0.
+		my $new_conf = update_conf_txt(
+			$conf,
+			$name_agent->{'nombre'},
+			'standby',
+			'1'
+		);
+	}
+
+    return $result;
 }
 
 ###############################################################################
@@ -269,13 +380,35 @@ sub pandora_disable_group ($$$) {
 sub pandora_enable_group ($$$) {
     my ($conf, $dbh, $group) = @_;
 
+	my @agents_bd = [];
+	my $result = 0;
+
 	if ($group == 0){
-			db_do ($dbh, "UPDATE tagente SET disabled = 0");
+		# Extract all the names of the pandora agents if it is for all = 0.
+		@agents_bd = get_db_rows ($dbh, 'SELECT nombre FROM tagente');
+
+		# Update bbdd.
+		$result = db_do ($dbh, "UPDATE tagente SET disabled = 0");
 	}
 	else {
-			db_do ($dbh, "UPDATE tagente SET disabled = 0 WHERE id_grupo = $group");
+		# Extract all the names of the pandora agents if it is for group.
+		@agents_bd = get_db_rows ($dbh, 'SELECT nombre FROM tagente WHERE id_grupo = ?', $group);
+
+		# Update bbdd.
+		$result = db_do ($dbh, "UPDATE tagente SET disabled = 0 WHERE id_grupo = $group");
 	}
-    exit;
+
+	foreach my $name_agent (@agents_bd) {
+		# Check the standby field I put it to 0.
+		my $new_conf = update_conf_txt(
+			$conf,
+			$name_agent->{'nombre'},
+			'standby',
+			'0'
+		);
+	}
+
+    return $result;
 }
 
 ##############################################################################
@@ -971,21 +1104,29 @@ sub cli_enable_group() {
 ##############################################################################
 
 sub cli_create_agent() {
-	my ($agent_name,$os_name,$group_name,$server_name,$address,$description,$interval) = @ARGV[2..8];
+	my ($agent_name,$os_name,$group_name,$server_name,$address,$description,$interval, $alias_as_name) = @ARGV[2..9];
 	
 	print_log "[INFO] Creating agent '$agent_name'\n\n";
 	
 	$address = '' unless defined ($address);
 	$description = (defined ($description) ? safe_input($description)  : '' );	# safe_input() might be better at pandora_create_agent() (when passing 'description' to db_insert())
 	$interval = 300 unless defined ($interval);
-	
+	$alias_as_name = 1 unless defined ($alias_as_name);
+	my $agent_alias = undef;
+
+	if (!$alias_as_name) {
+		$agent_alias = $agent_name;
+		$agent_name = generate_agent_name_hash($agent_alias, $conf{'dbhost'});
+	}
+
 	my $id_group = get_group_id($dbh,$group_name);
 	exist_check($id_group,'group',$group_name);
 	my $os_id = get_os_id($dbh,$os_name);
 	exist_check($id_group,'operating system',$group_name);
 	my $agent_exists = get_agent_id($dbh,$agent_name);
 	non_exist_check($agent_exists, 'agent name', $agent_name);
-	pandora_create_agent ($conf, $server_name, $agent_name, $address, $id_group, 0, $os_id, $description, $interval, $dbh);
+	pandora_create_agent ($conf, $server_name, $agent_name, $address, $id_group, 0, $os_id, $description, $interval, $dbh,
+		undef, undef, undef, undef, undef, undef, undef, undef, $agent_alias);
 }
 
 ##############################################################################
@@ -1149,21 +1290,21 @@ sub cli_create_data_module($) {
 		$min,$max,$post_process, $interval, $warning_min, $warning_max, $critical_min,
 		$critical_max, $history_data, $definition_file, $configuration_data, $warning_str, $critical_str, $enable_unknown_events,
 	    $ff_threshold, $each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $ff_timeout, 
-	    $warning_inverse, $critical_inverse);
+	    $warning_inverse, $critical_inverse, $critical_instructions, $warning_instructions, $unknown_instructions);
 	
 	if ($in_policy == 0) {
 		($module_name, $module_type, $agent_name, $description, $module_group, 
 		$min,$max,$post_process, $interval, $warning_min, $warning_max, $critical_min,
 		$critical_max, $history_data, $definition_file, $warning_str, $critical_str, $enable_unknown_events, $ff_threshold,
 		$each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $ff_timeout, 
-	    $warning_inverse, $critical_inverse) = @ARGV[2..27];
+	    $warning_inverse, $critical_inverse, $critical_instructions, $warning_instructions, $unknown_instructions) = @ARGV[2..30];
 	}
 	else {
 		($policy_name, $module_name, $module_type, $description, $module_group, 
 		$min,$max,$post_process, $interval, $warning_min, $warning_max, $critical_min,
 		$critical_max, $history_data, $configuration_data, $warning_str, $critical_str, $enable_unknown_events, $ff_threshold,
 		$each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $ff_timeout, 
-	    $warning_inverse, $critical_inverse) = @ARGV[2..28];
+	    $warning_inverse, $critical_inverse, $critical_instructions, $warning_instructions, $unknown_instructions) = @ARGV[2..31];
 	}
 	
 	my $module_name_def;
@@ -1188,7 +1329,7 @@ sub cli_create_data_module($) {
 		my $module_exists = get_agent_module_id($dbh, $module_name, $agent_id);
 		non_exist_check($module_exists, 'module name', $module_name);
 		
-		print_log "[INFO] Adding module '$module_name' to agent '$agent_name'\n\n";
+		#~ print_log "[INFO] Adding module '$module_name' to agent '$agent_name'\n\n";
 	}
 	else {
 		$policy_id = enterprise_hook('get_policy_id',[$dbh, safe_input($policy_name)]);
@@ -1197,7 +1338,7 @@ sub cli_create_data_module($) {
 		my $policy_module_exist = enterprise_hook('get_policy_module_id',[$dbh, $policy_id, $module_name]);
 		non_exist_check($policy_module_exist,'policy module',$module_name);
 		
-		print_log "[INFO] Adding module '$module_name' to policy '$policy_name'\n\n";
+		#~ print_log "[INFO] Adding module '$module_name' to policy '$policy_name'\n\n";
 	}
 	
 	$module_name_def = $module_name;
@@ -1214,7 +1355,7 @@ sub cli_create_data_module($) {
 		open (FILE, $definition_file);
 		while (<FILE>) {
 			chomp;
-			my ($key, $val) = split / /;
+			my ($key, $val) = split / /,2;
 			if ($key eq 'module_name') {
 				$module_name_def =  $val;
 			}
@@ -1234,6 +1375,17 @@ sub cli_create_data_module($) {
 		close(FILE);
 		
 		enterprise_hook('pandora_update_md5_file', [$conf, $agent_name]);
+	}
+	
+	if ($in_policy == 0) {
+		my $module_exists = get_agent_module_id($dbh, $module_name_def, $agent_id);
+		non_exist_check($module_exists, 'module name', $module_name_def);
+		print_log "[INFO] Adding module '$module_name' to agent '$agent_name'\n\n";
+	}
+	else {
+		my $policy_module_exist = enterprise_hook('get_policy_module_id',[$dbh, $policy_id, $module_name_def]);
+		non_exist_check($policy_module_exist,'policy module',$module_name_def);
+		print_log "[INFO] Adding module '$module_name' to policy '$policy_name'\n\n";
 	}
 	
 	if (defined($definition_file) && $module_type ne $module_type_def) {
@@ -1307,6 +1459,9 @@ sub cli_create_data_module($) {
 	$parameters{'ff_timeout'} = $ff_timeout unless !defined ($ff_timeout);
 	$parameters{'critical_inverse'} = $critical_inverse unless !defined ($critical_inverse);
 	$parameters{'warning_inverse'} = $warning_inverse unless !defined ($warning_inverse);
+	$parameters{'critical_instructions'} = $critical_instructions unless !defined ($critical_instructions);
+	$parameters{'warning_instructions'} = $warning_instructions unless !defined ($warning_instructions);
+	$parameters{'unknown_instructions'} = $unknown_instructions unless !defined ($unknown_instructions);
 	
 	if ($in_policy == 0) {
 		pandora_create_module_from_hash ($conf, \%parameters, $dbh);
@@ -1314,6 +1469,234 @@ sub cli_create_data_module($) {
 	else {
 		enterprise_hook('pandora_create_policy_module_from_hash', [$conf, \%parameters, $dbh]);
 	}
+}
+
+##############################################################################
+# Create web module.
+# Related option: --create_web_module
+##############################################################################
+
+sub cli_create_web_module($) {
+	my $in_policy = shift;
+	my ($policy_name, $module_name, $module_type, $agent_name, $description, $module_group, 
+		$min,$max,$post_process, $interval, $warning_min, $warning_max, $critical_min,
+		$critical_max, $history_data, $retries, $requests, $agent_browser_id, $auth_server, $auth_realm, 
+		$definition_file, $proxy_url, $proxy_auth_login, $proxy_auth_password, $configuration_data, $warning_str, $critical_str, $enable_unknown_events,
+	    $ff_threshold, $each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $ff_timeout, 
+	    $warning_inverse, $critical_inverse, $critical_instructions, $warning_instructions, $unknown_instructions);
+	
+	if ($in_policy == 0) {
+		($module_name, $module_type, $agent_name, $description, $module_group, 
+		$min,$max,$post_process, $interval, $warning_min, $warning_max, $critical_min,
+		$critical_max, $history_data, $retries, $requests, $agent_browser_id, $auth_server, $auth_realm, 
+		$definition_file, $proxy_url, $proxy_auth_login, $proxy_auth_password, $warning_str, $critical_str, 
+		$enable_unknown_events, $ff_threshold, $each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $ff_timeout, 
+	    $warning_inverse, $critical_inverse, $critical_instructions, $warning_instructions, $unknown_instructions) = @ARGV[2..38];
+	}
+	else {
+		($policy_name, $module_name, $module_type, $description, $module_group, 
+		$min,$max,$post_process, $interval, $warning_min, $warning_max, $critical_min,
+		$critical_max, $history_data, $retries, $requests, $agent_browser_id, $auth_server, $auth_realm, $configuration_data, $proxy_url,
+		 $proxy_auth_login, $proxy_auth_password, $warning_str, $critical_str, 
+		$enable_unknown_events, $ff_threshold, $each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $ff_timeout, 
+	    $warning_inverse, $critical_inverse, $critical_instructions, $warning_instructions, $unknown_instructions) = @ARGV[2..38];
+	}
+	
+	my $module_name_def;
+	my $module_type_def;
+	
+	my $agent_id;
+	my $policy_id;
+	
+	my $disabled_types_event = {};
+	if ($enable_unknown_events) {
+		$disabled_types_event->{'going_unknown'} = 0;
+	}
+	else {
+		$disabled_types_event->{'going_unknown'} = 1;
+	}
+	my $disabled_types_event_json = encode_json($disabled_types_event);
+	
+	if ($in_policy == 0) {
+		$agent_id = get_agent_id($dbh,$agent_name);
+		exist_check($agent_id,'agent',$agent_name);
+		
+		my $module_exists = get_agent_module_id($dbh, $module_name, $agent_id);
+		non_exist_check($module_exists, 'module name', $module_name);
+		
+		#~ print_log "[INFO] Adding module '$module_name' to agent '$agent_name'\n\n";
+	}
+	else {
+		$policy_id = enterprise_hook('get_policy_id',[$dbh, safe_input($policy_name)]);
+		exist_check($policy_id,'policy',$policy_name);
+		
+		my $policy_module_exist = enterprise_hook('get_policy_module_id',[$dbh, $policy_id, $module_name]);
+		non_exist_check($policy_module_exist,'policy module',$module_name);
+		
+		#~ print_log "[INFO] Adding module '$module_name' to policy '$policy_name'\n\n";
+	}
+	
+	$module_name_def = $module_name;
+	$module_type_def = $module_type;
+	# If the module is local and is not to policy, we add it to the conf file
+	if (defined($definition_file) && (-e $definition_file) && (-e $conf->{incomingdir}.'/conf/'.md5($agent_name).'.conf')){
+		open (FILE, $definition_file);
+		my @file = <FILE>;
+		my $definition = join("", @file);
+		close (FILE);
+		
+		# If the parameter name or type and the definition file name or type 
+		# dont match will be set the file definitions
+		open (FILE, $definition_file);
+		while (<FILE>) {
+			chomp;
+			my ($key, $val) = split / /;
+			if ($key eq 'module_name') {
+				$module_name_def =  $val;
+			}
+			if ($key eq 'module_type') {
+				$module_type_def =  $val;
+			}
+		}
+		close (FILE);
+		
+		#open (FILE, $conf->{incomingdir}.'/conf/'.md5($agent_name).'.conf');
+		#my @file = <FILE>;
+		#my $conf_file = join("", @file);
+		#close(FILE);
+		
+		#open FILE, "> ".$conf->{incomingdir}.'/conf/'.md5($agent_name).'.conf';
+		#print FILE "$conf_file\n$definition";
+		#close(FILE);
+		
+		enterprise_hook('pandora_update_md5_file', [$conf, $agent_name]);
+	}
+	
+	if ($in_policy == 0) {
+		my $module_exists = get_agent_module_id($dbh, $module_name_def, $agent_id);
+		non_exist_check($module_exists, 'module name', $module_name_def);
+		print_log "[INFO] Adding module '$module_name' to agent '$agent_name'\n\n";
+	}
+	else {
+		my $policy_module_exist = enterprise_hook('get_policy_module_id',[$dbh, $policy_id, $module_name_def]);
+		non_exist_check($policy_module_exist,'policy module',$module_name_def);
+		print_log "[INFO] Adding module '$module_name' to policy '$policy_name'\n\n";
+	}
+	
+	if (defined($definition_file) && $module_type ne $module_type_def) {
+		$module_type = $module_type_def;
+		print_log "[INFO] The module type has been forced to '$module_type' by the definition file\n\n";
+	}
+	
+	if (defined($definition_file) && $module_name ne $module_name_def) {
+		$module_name = $module_name_def;
+		print_log "[INFO] The module name has been forced to '$module_name' by the definition file\n\n";
+	}
+	
+	# The get_module_id has wrong name. Change in future
+	my $module_type_id = get_module_id($dbh,$module_type);
+	exist_check($module_type_id,'module type',$module_type);
+	
+	if ($module_type !~ m/.?web.?/) {
+			print_log "[ERROR] '$module_type' is not valid type for web modules. Try with web_data, web_proc, web_content_data or web_content_string types\n\n";
+			exit;
+	}
+	
+	my $module_group_id = 0;
+	
+	if (defined($module_group)) {
+		$module_group_id = get_module_group_id($dbh,$module_group);
+		exist_check($module_group_id,'module group',$module_group);
+	}
+	
+	my %parameters;
+	
+	$parameters{'id_tipo_modulo'} = $module_type_id;
+	
+	if ($in_policy == 0) {
+		$parameters{'nombre'} = safe_input($module_name);
+		$parameters{'id_agente'} = $agent_id;
+	}
+	else {
+		$parameters{'name'} = safe_input($module_name);
+		$parameters{'id_policy'} = $policy_id;
+	}
+	
+	# Optional parameters
+	$parameters{'id_module_group'} = $module_group_id unless !defined ($module_group);
+	$parameters{'min_warning'} = $warning_min unless !defined ($warning_min);
+	$parameters{'max_warning'} = $warning_max unless !defined ($warning_max);
+	$parameters{'min_critical'} = $critical_min unless !defined ($critical_min);
+	$parameters{'max_critical'} = $critical_max unless !defined ($critical_max);
+	$parameters{'history_data'} = $history_data unless !defined ($history_data);
+	if ($in_policy == 0) {
+		$parameters{'descripcion'} = safe_input($description) unless !defined ($description);
+		$parameters{'id_modulo'} = 7;	
+	}
+	else {
+		$parameters{'description'} = safe_input($description) unless !defined ($description);
+		$parameters{'id_module'} = 7;
+		$configuration_data !~ s/\\n/\n/g;
+		$parameters{'configuration_data'} = safe_input($configuration_data);	
+	}
+	$parameters{'min'} = $min unless !defined ($min);
+	$parameters{'max'} = $max unless !defined ($max);
+	$parameters{'post_process'} = $post_process unless !defined ($post_process);
+	$parameters{'module_interval'} = $interval unless !defined ($interval);
+	$parameters{'str_warning'}  = safe_input($warning_str)  unless !defined ($warning_str);
+	$parameters{'str_critical'} = safe_input($critical_str) unless !defined ($critical_str);
+	$parameters{'disabled_types_event'} = $disabled_types_event_json;
+	$parameters{'min_ff_event'} = $ff_threshold unless !defined ($ff_threshold);
+	$parameters{'each_ff'} = $each_ff unless !defined ($each_ff);
+	$parameters{'min_ff_event_normal'} = $ff_threshold_normal unless !defined ($ff_threshold_normal);
+	$parameters{'min_ff_event_warning'} = $ff_threshold_warning unless !defined ($ff_threshold_warning);
+	$parameters{'min_ff_event_critical'} = $ff_threshold_critical unless !defined ($ff_threshold_critical);
+	$parameters{'ff_timeout'} = $ff_timeout unless !defined ($ff_timeout);
+	$parameters{'critical_inverse'} = $critical_inverse unless !defined ($critical_inverse);
+	$parameters{'warning_inverse'} = $warning_inverse unless !defined ($warning_inverse);
+	$parameters{'critical_instructions'} = $critical_instructions unless !defined ($critical_instructions);
+	$parameters{'warning_instructions'} = $warning_instructions unless !defined ($warning_instructions);
+	$parameters{'unknown_instructions'} = $unknown_instructions unless !defined ($unknown_instructions);
+	
+	$parameters{'max_retries'} = $retries unless !defined ($retries);
+	$parameters{'plugin_pass'} = $requests unless !defined ($requests);
+	$parameters{'plugin_user'} = $agent_browser_id unless !defined ($agent_browser_id);
+	# $parameters{'http_user'} = $http_auth_login unless !defined ($http_auth_login);
+	# $parameters{'http_pass'} = $http_auth_password unless !defined ($http_auth_password);
+	$parameters{'snmp_oid'} = defined ($proxy_url) ? $proxy_url : '';
+	$parameters{'tcp_send'} = $proxy_auth_login unless !defined ($proxy_auth_login);
+	$parameters{'tcp_rcv'} = $proxy_auth_password unless !defined ($proxy_auth_password);
+	$parameters{'ip_target'} = $auth_server unless !defined ($auth_server);
+	$parameters{'snmp_community'} = $auth_realm unless !defined ($auth_realm);
+	
+	
+	
+	if ($in_policy == 0) {
+		pandora_create_module_from_hash ($conf, \%parameters, $dbh);
+	}
+	else {
+		enterprise_hook('pandora_create_policy_module_from_hash', [$conf, \%parameters, $dbh]);
+	}
+	
+	#Begin Insert module definition from file_definition in bd
+	if (defined($definition_file)){	
+		
+				open(my $fh, '<', $definition_file) or die($!);
+				my @lines = <$fh>;
+				close ($fh);
+		
+				my $sql = get_db_value ($dbh, "SELECT MAX(id_agente_modulo) FROM tagente_modulo");
+				my $sql2 = "UPDATE tagente_modulo SET plugin_parameter = '".join("",@lines)."' WHERE id_agente_modulo = ".$sql;
+				my $create = $dbh->do($sql2);
+				if($create){
+				print "Success";
+				}
+				else{
+					print "Failure<br/>$DBI::errstr";
+				}
+			}
+		#End Insert module definition from file_definition in bd
+		
 }
 
 ##############################################################################
@@ -1327,6 +1710,54 @@ sub cli_create_module_group () {
 	non_exist_check($id_module_group,'group',$module_group_name);
 	
 	db_insert ($dbh, 'id_mg', 'INSERT INTO tmodule_group (name) VALUES (?)', safe_input($module_group_name));
+}
+
+##############################################################################
+# Show all the module group (without parameters) or the module groups with a filter parameters
+# Related option: --get_module_group
+##############################################################################
+
+sub cli_get_module_group() {
+	my ($module_group_name) = @ARGV[2..2];
+
+	my $condition = ' 1=1 ';
+
+	if($module_group_name ne '') {
+		$condition .= " AND name LIKE '%$module_group_name%' ";
+	}
+
+	my @module_group = get_db_rows ($dbh, "SELECT * FROM tmodule_group WHERE $condition");	
+
+	if(scalar(@module_group) == 0) {
+		print_log "[INFO] No groups found\n\n";
+		exit;
+	}
+
+	my $head_print = 0;
+	foreach my $groups (@module_group) {
+
+		if($head_print == 0) {
+			$head_print = 1;
+			print "id_module_group, group_name\n";
+		}
+		print $groups->{'id_mg'}.",".safe_output($groups->{'name'})."\n";
+	}
+
+	if($head_print == 0) {
+		print_log "[INFO] No groups found\n\n";
+	}
+
+}
+
+
+sub cli_module_group_synch() {
+	my $other = @ARGV[2];
+	my $return_type = @ARGV[3];
+	if ($return_type eq '') {
+		$return_type = 'csv';
+	}
+	my $result = api_call(\%conf,'set', 'module_group_synch', undef, undef, "$other", $return_type);
+	print "$result \n\n ";
 }
 
 ##############################################################################
@@ -1350,6 +1781,23 @@ sub cli_create_network_module_from_component() {
 	my $component = get_db_single_row ($dbh, 'SELECT * FROM tnetwork_component WHERE id_nc = ?', $nc_id);
 	
 	pandora_create_module_from_network_component ($conf, $component, $agent_id, $dbh);
+}
+
+##############################################################################
+# Create a network component.
+# Related option: --create_network_component
+##############################################################################
+sub cli_create_network_component() {
+	my ($c_name, $c_group, $c_type) = @ARGV[2..4];
+	my @todo = @ARGV[5..20];
+	my $other = join('|', @todo);
+	my @todo2 = @ARGV[22..26];
+	my $other2 = join('|', @todo2);
+
+	# Call the API.
+	my $result = api_call( $conf, 'set', 'new_network_component', $c_name, undef, "$c_type|$other|$c_group|$other2");
+	
+	print "$result \n\n ";
 }
 
 ##############################################################################
@@ -1382,21 +1830,24 @@ sub cli_create_network_module($) {
 	my ($policy_name, $module_name, $module_type, $agent_name, $module_address, $module_port, $description, 
 	$module_group, $min, $max, $post_process, $interval, $warning_min, $warning_max, $critical_min,
 	$critical_max, $history_data, $ff_threshold, $warning_str, $critical_str, $enable_unknown_events, $each_ff,
-	$ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $timeout, $retries);
+	$ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $timeout, $retries, $critical_instructions, 
+	$warning_instructions, $unknown_instructions, $warning_inverse, $critical_inverse);
 	
 	if ($in_policy == 0) {
 		($module_name, $module_type, $agent_name, $module_address, $module_port, $description, 
 		$module_group, $min, $max, $post_process, $interval, $warning_min, $warning_max, $critical_min,
 		$critical_max, $history_data, $ff_threshold, $warning_str, $critical_str, $enable_unknown_events,
 		$each_ff, $ff_threshold_normal, $ff_threshold_warning,
-		$ff_threshold_critical, $timeout, $retries) = @ARGV[2..27];
+		$ff_threshold_critical, $timeout, $retries,$critical_instructions, $warning_instructions, $unknown_instructions,
+		$warning_inverse, $critical_inverse) = @ARGV[2..32];
 	}
 	else {
 		($policy_name, $module_name, $module_type, $module_port, $description, 
 		$module_group, $min, $max, $post_process, $interval, $warning_min, $warning_max, $critical_min,
 		$critical_max, $history_data, $ff_threshold, $warning_str, $critical_str, $enable_unknown_events,
 		$each_ff, $ff_threshold_normal, $ff_threshold_warning,
-		$ff_threshold_critical, $timeout, $retries) = @ARGV[2..26];
+		$ff_threshold_critical, $timeout, $retries, $critical_instructions, $warning_instructions, $unknown_instructions,
+		$warning_inverse, $critical_inverse) = @ARGV[2..31];
 	}
 	
 	my $module_name_def;
@@ -1425,7 +1876,7 @@ sub cli_create_network_module($) {
 	else {
 		$policy_id = enterprise_hook('get_policy_id',[$dbh, safe_input($policy_name)]);
 		exist_check($policy_id,'policy',$policy_name);
-	
+
 		my $policy_module_exist = enterprise_hook('get_policy_module_id',[$dbh, $policy_id, $module_name]);
 		non_exist_check($policy_module_exist,'policy module',$module_name);
 		
@@ -1508,6 +1959,11 @@ sub cli_create_network_module($) {
 	$parameters{'min_ff_event_critical'} = $ff_threshold_critical unless !defined ($ff_threshold_critical);
 	$parameters{'max_timeout'} = $timeout unless !defined ($timeout);
 	$parameters{'max_retries'} = $retries unless !defined ($retries);
+	$parameters{'critical_instructions'} = $critical_instructions unless !defined ($critical_instructions);
+	$parameters{'warning_instructions'} = $warning_instructions unless !defined ($warning_instructions);
+	$parameters{'unknown_instructions'} = $unknown_instructions unless !defined ($unknown_instructions);
+	$parameters{'critical_inverse'} = $critical_inverse unless !defined ($critical_inverse);
+	$parameters{'warning_inverse'} = $warning_inverse unless !defined ($warning_inverse);
 	
 	if ($in_policy == 0) {
 		pandora_create_module_from_hash ($conf, \%parameters, $dbh);
@@ -1528,21 +1984,24 @@ sub cli_create_snmp_module($) {
 		$oid, $description, $module_group, $min, $max, $post_process, $interval, $warning_min, 
 		$warning_max, $critical_min, $critical_max, $history_data, $snmp3_priv_method, $snmp3_priv_pass,
 		$snmp3_sec_level, $snmp3_auth_method, $snmp3_auth_user, $snmp3_auth_pass, $ff_threshold, $warning_str, $critical_str, $enable_unknown_events,
-	    $each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $timeout, $retries);
+	    $each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $timeout, $retries,
+		$critical_instructions, $warning_instructions, $unknown_instructions, $warning_inverse, $critical_inverse);
 	
 	if ($in_policy == 0) {
 		($module_name, $module_type, $agent_name, $module_address, $module_port, $version, $community, 
 		$oid, $description, $module_group, $min, $max, $post_process, $interval, $warning_min, 
 		$warning_max, $critical_min, $critical_max, $history_data, $snmp3_priv_method, $snmp3_priv_pass,
 		$snmp3_sec_level, $snmp3_auth_method, $snmp3_auth_user, $snmp3_auth_pass, $ff_threshold, $warning_str, $critical_str, $enable_unknown_events,
-		$each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $timeout, $retries) = @ARGV[2..36];
+		$each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $timeout, $retries,
+		$critical_instructions, $warning_instructions, $unknown_instructions, $warning_inverse, $critical_inverse) = @ARGV[2..41];
 	}
 	else {
 		($policy_name, $module_name, $module_type, $module_port, $version, $community, 
 		$oid, $description, $module_group, $min, $max, $post_process, $interval, $warning_min, 
 		$warning_max, $critical_min, $critical_max, $history_data, $snmp3_priv_method, $snmp3_priv_pass,
 		$snmp3_sec_level, $snmp3_auth_method, $snmp3_auth_user, $snmp3_auth_pass, $ff_threshold, $warning_str, $critical_str, $enable_unknown_events,
-		$each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $timeout, $retries) = @ARGV[2..35];
+		$each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $timeout, $retries,
+		$critical_instructions, $warning_instructions, $unknown_instructions, $warning_inverse, $critical_inverse) = @ARGV[2..40];
 	}
 	
 	my $module_name_def;
@@ -1659,6 +2118,11 @@ sub cli_create_snmp_module($) {
 	$parameters{'min_ff_event_critical'} = $ff_threshold_critical unless !defined ($ff_threshold_critical);
 	$parameters{'max_timeout'} = $timeout unless !defined ($timeout);
 	$parameters{'max_retries'} = $retries unless !defined ($retries);
+	$parameters{'critical_instructions'} = $critical_instructions unless !defined ($critical_instructions);
+	$parameters{'warning_instructions'} = $warning_instructions unless !defined ($warning_instructions);
+	$parameters{'unknown_instructions'} = $unknown_instructions unless !defined ($unknown_instructions);
+	$parameters{'critical_inverse'} = $critical_inverse unless !defined ($critical_inverse);
+	$parameters{'warning_inverse'} = $warning_inverse unless !defined ($warning_inverse);
 	
 	if ($in_policy == 0) {
 		pandora_create_module_from_hash ($conf, \%parameters, $dbh);
@@ -1679,21 +2143,24 @@ sub cli_create_plugin_module($) {
 		$user, $password, $params, $description, $module_group, $min, $max, $post_process, 
 		$interval, $warning_min, $warning_max, $critical_min, $critical_max, $history_data, 
 		$ff_threshold, $warning_str, $critical_str, $enable_unknown_events,
-	    $each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $timeout);
+	    $each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $timeout,
+		$critical_instructions, $warning_instructions, $unknown_instructions, $warning_inverse, $critical_inverse);
 	
 	if ($in_policy == 0) {
 		($module_name, $module_type, $agent_name, $module_address, $module_port, $plugin_name,
 			$user, $password, $params, $description, $module_group, $min, $max, $post_process, 
 			$interval, $warning_min, $warning_max, $critical_min, $critical_max, $history_data, 
 			$ff_threshold, $warning_str, $critical_str, $enable_unknown_events,
-		$each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $timeout) = @ARGV[2..30];
+		$each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $timeout,
+		$critical_instructions, $warning_instructions, $unknown_instructions, $warning_inverse, $critical_inverse) = @ARGV[2..35];
 	}
 	else {
 		($policy_name, $module_name, $module_type, $module_port, $plugin_name,
 			$user, $password, $params, $description, $module_group, $min, $max, $post_process, 
 			$interval, $warning_min, $warning_max, $critical_min, $critical_max, $history_data, 
 			$ff_threshold, $warning_str, $critical_str, $enable_unknown_events,
-		$each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $timeout) = @ARGV[2..29];
+		$each_ff, $ff_threshold_normal, $ff_threshold_warning, $ff_threshold_critical, $timeout,
+		$critical_instructions, $warning_instructions, $unknown_instructions, $warning_inverse, $critical_inverse) = @ARGV[2..34];
 	}
 	
 	my $module_name_def;
@@ -1825,6 +2292,11 @@ sub cli_create_plugin_module($) {
 	$parameters{'min_ff_event_warning'} = $ff_threshold_warning unless !defined ($ff_threshold_warning);
 	$parameters{'min_ff_event_critical'} = $ff_threshold_critical unless !defined ($ff_threshold_critical);
 	$parameters{'max_timeout'} = $timeout unless !defined ($timeout);
+	$parameters{'critical_instructions'} = $critical_instructions unless !defined ($critical_instructions);
+	$parameters{'warning_instructions'} = $warning_instructions unless !defined ($warning_instructions);
+	$parameters{'unknown_instructions'} = $unknown_instructions unless !defined ($unknown_instructions);
+	$parameters{'critical_inverse'} = $critical_inverse unless !defined ($critical_inverse);
+	$parameters{'warning_inverse'} = $warning_inverse unless !defined ($warning_inverse);
 	
 	if ($in_policy == 0) {
 		pandora_create_module_from_hash ($conf, \%parameters, $dbh);
@@ -2072,7 +2544,7 @@ sub cli_user_update() {
 	my $user_exists = get_user_exists ($dbh, $user_id);
 	exist_check($user_exists,'user',$user_id);
 	
-	if($field eq 'email' || $field eq 'phone' || $field eq 'is_admin' || $field eq 'language' || $field eq 'id_skin' || $field eq 'flash_chart') {
+	if($field eq 'email' || $field eq 'phone' || $field eq 'is_admin' || $field eq 'language' || $field eq 'id_skin') {
 		# Fields admited, no changes
 	}
 	elsif($field eq 'comments' || $field eq 'fullname') {
@@ -2524,6 +2996,15 @@ sub cli_module_update() {
 	elsif ($field eq 'ff_threshold_critical') {
 		$field = 'min_ff_event_critical';
 	}
+	elsif ($field eq 'critical_instructions') {
+		$field = 'critical_instructions';
+	}
+	elsif ($field eq 'warning_instructions') {
+		$field = 'warning_instructions';
+	}
+	elsif ($field eq 'unknown_instructions') {
+		$field = 'unknown_instructions';
+	}
 	else {
 		# If is not a common value, check type and call type update funtion
 		my $type = pandora_get_module_type($dbh,$id_agent_module);
@@ -2721,6 +3202,128 @@ sub cli_delete_alert_template() {
 }
 
 ##############################################################################
+# Add alert command.
+# Related option: --create_alert_command
+##############################################################################
+
+sub cli_create_alert_command() {
+	my ($command_name,$command,$group_name,$description,$internal,$fields_descriptions,$fields_values) = @ARGV[2..8];
+	
+	print_log "[INFO] Adding command '$command_name'\n\n";
+	
+	my $command_id = get_command_id($dbh,$command_name);
+	non_exist_check($command_id,'command',$command_name);
+	
+	my $id_group;
+	
+	if (! $group_name || $group_name eq "All") {
+		$id_group = 0;
+	}
+	else {
+		$id_group = get_group_id($dbh,$group_name);
+		exist_check($id_group,'group',$group_name);
+	}
+	
+	my %parameters;						
+	
+	$parameters{'name'} = $command_name;
+	$parameters{'command'} = $command;
+	$parameters{'id_group'} = $id_group;
+	$parameters{'description'} = $description;
+	$parameters{'internal'} = $internal;
+	$parameters{'fields_descriptions'} = $fields_descriptions;
+	$parameters{'fields_values'} = $fields_values;
+	
+	pandora_create_alert_command ($conf, \%parameters, $dbh);
+}
+
+##############################################################################
+# Show all the alert commands (without parameters) or the alert commands with a filter parameters
+# Related option: --get_alert_commands
+##############################################################################
+
+sub cli_get_alert_commands() {
+	my ($command_name, $command, $group_name, $description, $internal) = @ARGV[2..6];
+
+	my $id_group;
+	my $condition = ' 1=1 ';
+
+	if($command_name ne '') {
+		my $name = safe_input ($command_name);		
+		$condition .= " AND name LIKE '%$name%' ";
+	}
+	
+	if($command ne '') {
+		$condition .= " AND command LIKE '%$command%' ";
+	}
+
+	if($group_name ne '') {
+		$id_group = get_group_id($dbh, $group_name);
+		exist_check($id_group,'group',$group_name);
+		
+		$condition .= " AND id_group = $id_group ";
+	}
+	
+	if($description ne '') {
+		$condition .= " AND description LIKE '%$description%' ";
+	}
+
+	if($internal ne '') {
+		$condition .= " AND internal = $internal ";
+	}
+
+	my @alert_command = get_db_rows ($dbh, "SELECT * FROM talert_commands WHERE $condition");	
+
+	if(scalar(@alert_command) == 0) {
+		print_log "[INFO] No commands found\n\n";
+		exit;
+	}
+
+	my $head_print = 0;
+	foreach my $commands (@alert_command) {
+
+		if($head_print == 0) {
+			$head_print = 1;
+			print "id_command, command_name\n";
+		}
+		print $commands->{'id'}.",".safe_output($commands->{'name'})."\n";
+	}
+
+	if($head_print == 0) {
+		print_log "[INFO] No commands found\n\n";
+	}
+}
+
+##############################################################################
+# Get alert actions.
+# Related option: --get_alert_actions
+##############################################################################
+
+sub cli_get_alert_actions() {
+	my ($action_name,$separator,$return_type) = @ARGV[2..4];
+	if ($return_type eq '') {
+		$return_type = 'csv';
+	}
+	my $result = api_call(\%conf,'get', 'alert_actions', undef, undef, "$action_name|$separator",$return_type);
+	print "$result \n\n ";
+}
+
+##############################################################################
+# Get alert actions in nodes.
+# Related option: --get_alert_actions_meta
+##############################################################################
+
+sub cli_get_alert_actions_meta() {
+	my ($server_name,$action_name,$separator,$return_type) = @ARGV[2..5];
+	if ($return_type eq '') {
+		$return_type = 'csv';
+	}
+
+	my $result = api_call(\%conf,'get', 'alert_actions_meta', undef, undef, "$server_name|$action_name|$separator",$return_type);
+	print "$result \n\n ";
+}
+
+##############################################################################
 # Add profile.
 # Related option: --add_profile
 ##############################################################################
@@ -2798,14 +3401,14 @@ sub cli_delete_profile() {
 ##############################################################################
 
 sub cli_create_event() {
-	my ($event,$event_type,$group_name,$agent_name,$module_name,$event_status,$severity,$template_name, $user_name, $comment, $source, $id_extra, $tags, $custom_data) = @ARGV[2..15];
+	my ($event,$event_type,$group_name,$agent_name,$module_name,$event_status,$severity,$template_name, $user_name, $comment, $source, $id_extra, $tags, $custom_data,$force_create_agent,$c_instructions,$w_instructions,$u_instructions) = @ARGV[2..19];
 
 	$event_status = 0 unless defined($event_status);
 	$severity = 0 unless defined($severity);
 
 	my $id_user;
 	
-	if (!defined($user_name)) {
+	if (!defined($user_name) || $user_name eq '') {
 		$id_user = 0;
 	}
 	else {
@@ -2830,7 +3433,18 @@ sub cli_create_event() {
 	}
 	else {
 		$id_agent = get_agent_id($dbh,$agent_name);
-		exist_check($id_agent,'agent',$agent_name);
+		# exist_check($id_agent,'agent',$agent_name);
+		if($id_agent == -1){
+			if($force_create_agent == 1){
+				pandora_create_agent ($conf, '', $agent_name, '', '', '', '', 'Created by cli_create_event', '', $dbh);
+				print_log "[INFO] Adding agent '$agent_name' \n\n";
+				$id_agent = get_agent_id($dbh,$agent_name);
+			}
+			else{
+				exist_check($id_agent,'agent',$agent_name);
+			}
+		}
+
 	}
 	
 	my $id_agentmodule;
@@ -2864,7 +3478,7 @@ sub cli_create_event() {
 	$custom_data = encode_base64 ($custom_data);
 
 	pandora_event ($conf, $event, $id_group, $id_agent, $severity,
-		$id_alert_agent_module, $id_agentmodule, $event_type, $event_status, $dbh, $source, $user_name, $comment, $id_extra, $tags, '', '', '', $custom_data);
+		$id_alert_agent_module, $id_agentmodule, $event_type, $event_status, $dbh, $source, $user_name, $comment, $id_extra, $tags, $c_instructions, $w_instructions, $u_instructions, $custom_data);
 }
 
 ##############################################################################
@@ -2947,8 +3561,13 @@ sub cli_get_event_info () {
 	exist_check($event_name,'event',$id_event);
 	
 	$csv_separator = '|' unless defined($csv_separator);
+
+	my $event_table = "tevento";
+	if (is_metaconsole($conf) == 1) {
+		$event_table = "tmetaconsole_event";
+	}
 	
-	my $query = "SELECT * FROM tevento where id_evento=".$id_event;
+	my $query = "SELECT * FROM " . $event_table . " where id_evento=" . $id_event;
 
 	my $header = "Event ID".$csv_separator."Event name".$csv_separator."Agent ID".$csv_separator."User ID".$csv_separator.
 				"Group ID".$csv_separator."Status".$csv_separator."Timestamp".$csv_separator."Event type".$csv_separator.
@@ -3102,19 +3721,11 @@ sub cli_delete_data($) {
 ##############################################################################
 
 sub cli_apply_policy() {
-	my $policy_name = @ARGV[2];
-	
-	my $policy_id = enterprise_hook('get_policy_id',[$dbh, safe_input($policy_name)]);
-	exist_check($policy_id,'policy',$policy_name);
-	
-	my $ret = enterprise_hook('pandora_add_policy_queue', [$dbh, $conf, $policy_id, 'apply']);
-	
-	if($ret == -1) {
-		print_log "[ERROR] Operation 'apply' cannot be added to policy '$policy_name' because is duplicated in queue or incompatible with others operations\n\n";
-		exit;
-	}
-	
-	print_log "[INFO] Added operation 'apply' to policy '$policy_name'\n\n";
+	my ($id_policy, $id_agent, $name, $id_server) = @ARGV[2..5];
+
+	# Call the API.
+	my $result = api_call(\%conf, 'set', 'apply_policy', $id_policy, $id_agent, "$name|$id_server");
+	print "\n$result\n";
 }
 
 ##############################################################################
@@ -3131,7 +3742,7 @@ sub cli_apply_all_policies() {
 	
 	my $added = 0;
 	foreach my $policy (@{$policies}) {
-		my $ret = enterprise_hook('pandora_add_policy_queue', [$dbh, $conf, $policy->{'id'}, 'apply']);
+		my $ret = enterprise_hook('pandora_add_policy_queue', [$dbh, $conf, $policy->{'id'}, 'apply', 0, 1]);
 		if($ret != -1) {
 			$added++;
 			print_log "[INFO] Added operation 'apply' to policy '".safe_output($policy->{'name'})."'\n";
@@ -3287,9 +3898,8 @@ sub cli_get_agent_group() {
 				else {
 					my $id_group = get_agent_group ($dbh_metaconsole, $id_agent);
 					my $group_name = get_group_name ($dbh_metaconsole, $id_group);
-					my $metaconsole_name = enterprise_hook('get_metaconsole_setup_server_name',[$dbh, $server]);
 					$agent_name = safe_output($agent_name);
-					print "[INFO] Server: $metaconsole_name Agent: $agent_name Name Group: $group_name\n\n";
+					print "[INFO] Agent: $agent_name Name Group: $group_name\n\n";
 				}
 			}
 		}
@@ -3329,7 +3939,6 @@ sub cli_get_agent_group_id() {
 			foreach my $server (@servers_id) {
 				my $dbh_metaconsole = enterprise_hook('get_node_dbh',[$conf, $server, $dbh]);
 				
-				my $metaconsole_name = enterprise_hook('get_metaconsole_setup_server_name',[$dbh, $server]);
 				my $id_agent = get_agent_id($dbh_metaconsole,$agent_name);
 				
 				if ($id_agent == -1) {
@@ -3338,7 +3947,7 @@ sub cli_get_agent_group_id() {
 				else {
 					my $id_group = get_agent_group ($dbh_metaconsole, $id_agent);
 					$agent_name = safe_output($agent_name);
-					print "Server: $metaconsole_name Agent: $agent_name ID Group: $id_group\n\n";
+					print "Agent: $agent_name ID Group: $id_group\n\n";
 				}
 			}
 		}
@@ -3717,16 +4326,18 @@ sub cli_get_bad_conf_files() {
 		my $missings = 0;
 		my @tokens = ("server_ip","server_path","temporal","log_file");
 		
-		foreach my $token (@tokens) {
-			if(enterprise_hook('pandora_check_conf_token',[$conf->{incomingdir}.'/conf/'.$file, $token]) == 0) {
-				$missings++;
+		if ($file !~ /.srv./) {
+			foreach my $token (@tokens) {
+				if(enterprise_hook('pandora_check_conf_token',[$conf->{incomingdir}.'/conf/'.$file, $token]) == 0) {
+					$missings++;
+				}
 			}
-		}
-		
-		# If any token of checked is missed we print the file path
-		if($missings > 0) {
-			print $conf->{incomingdir}.'/conf/'.$file."\n";
-			$bad_files++;
+			
+			# If any token of checked is missed we print the file path
+			if($missings > 0) {
+				print $conf->{incomingdir}.'/conf/'.$file."\n";
+				$bad_files++;
+			}
 		}
 	}
 	
@@ -3775,9 +4386,22 @@ sub cli_policy_add_agent() {
 	}
 }
 
+##############################################################################
+# delete an agent to a policy
+# Related option: --remove_agent_from_policy
+##############################################################################
+
+sub cli_policy_delete_agent() {
+	my ($policy_id, $agent_id) = @ARGV[2..3];
+	
+	my $result = api_call(\%conf,'set', 'remove_agent_from_policy', $policy_id, $agent_id);
+	print "$result \n\n ";
+
+}
+
 sub cli_create_planned_downtime() {
 	my $name = @ARGV[2];
-	my @todo = @ARGV[3..20];
+	my @todo = @ARGV[3..21];
 	my $other = join('|', @todo);
 	
 	my $result = api_call(\%conf,'set', 'planned_downtimes_created', $name, undef, "$other");
@@ -3994,19 +4618,20 @@ sub cli_update_group() {
 
 
 ###############################################################################
-# Locate agent in any Nodes of metaconsole
+# Returns the Nodes ID where the agent is defined (Metaconsole only)
 # Related option: --locate_agent
 ###############################################################################
 sub cli_locate_agent () {
 	my ($agent_name) = @ARGV[2];
-	
+
 	if (is_metaconsole($conf) == 1) {
+
 		my $agents_server = enterprise_hook('get_metaconsole_agent',[$dbh, $agent_name]);
-		
+
 		if (scalar(@{$agents_server}) != 0) {
 			foreach my $agent (@{$agents_server}) {
-				my $server = enterprise_hook('get_metaconsole_setup_server_id',[$dbh, $agent->{'server_name'}]);
-				print " $server \n\n "
+				#my $server = enterprise_hook('get_metaconsole_setup_server_id',[$dbh, $agent->{'server_name'}]);
+				print $agent->{'id_tmetaconsole_setup'} . "\n";
 			}
 		}
 		else {
@@ -4116,6 +4741,18 @@ sub cli_disable_double_auth () {
 	my $result = db_do ($dbh, 'DELETE FROM tuser_double_auth WHERE id_user = ?', $user_id);
 	
 	exit;
+}
+
+###############################################################################
+# Synchronize metaconsole users
+# Related option: --meta_synch_user
+###############################################################################
+sub cli_meta_synch_user() {
+	my ($user_name,$server_name,$profile_mode,$group,$profiles,$create_groups) = @ARGV[2..7];
+
+	my $result = api_call(\%conf,'set', 'meta_synch_user', undef, undef, "$user_name|$server_name|$profile_mode|$group|$profiles|$create_groups");
+	print "$result \n\n ";
+
 }
 
 ###############################################################################
@@ -4241,13 +4878,6 @@ sub cli_module_get_data () {
 			AND utimestamp > (UNIX_TIMESTAMP(NOW()) - $interval) 
 			ORDER BY utimestamp DESC");
 	}
-	elsif ($module_type =~ m/_inc$/) {
-		@data = get_db_rows ($dbh, "SELECT utimestamp, datos 
-			FROM tagente_datos_inc 
-			WHERE id_agente_modulo = $id_agent_module 
-			AND utimestamp > (UNIX_TIMESTAMP(NOW()) - $interval) 
-			ORDER BY utimestamp DESC");
-	}
 	else {
 		@data = get_db_rows ($dbh, "SELECT utimestamp, datos 
 			FROM tagente_datos 
@@ -4292,7 +4922,12 @@ sub cli_set_event_storm_protection () {
 sub pandora_get_event_name($$) {
 	my ($dbh,$id_event) = @_;
 	
-	my $event_name = get_db_value($dbh, 'SELECT evento FROM tevento WHERE id_evento = ?',$id_event);
+	my $event_table = "tevento";
+	if (is_metaconsole($conf) == 1) {
+		$event_table = "tmetaconsole_event";
+	}
+
+	my $event_name = get_db_value($dbh, 'SELECT evento FROM ' . $event_table . ' WHERE id_evento = ?',$id_event);
 	
 	return defined ($event_name) ? $event_name : -1;
 }
@@ -4303,7 +4938,12 @@ sub pandora_get_event_name($$) {
 sub pandora_update_event_from_hash ($$$$) {
 	my ($parameters, $where_column, $where_value, $dbh) = @_;
 	
-	my $event_id = db_process_update($dbh, 'tevento', $parameters, {$where_column => $where_value});
+	my $event_table = "tevento";
+	if (is_metaconsole($conf) == 1) {
+		$event_table = "tmetaconsole_event";
+	}
+
+	my $event_id = db_process_update($dbh, $event_table, $parameters, {$where_column => $where_value});
 	return $event_id;
 }
 
@@ -4314,7 +4954,12 @@ sub pandora_update_event_from_hash ($$$$) {
 sub pandora_get_event_comment($$) {
 	my ($dbh,$id_event) = @_;
 
-	my $event_name = get_db_value($dbh, 'SELECT user_comment FROM tevento WHERE id_evento = ?',$id_event);
+	my $event_table = "tevento";
+	if (is_metaconsole($conf) == 1) {
+		$event_table = "tmetaconsole_event";
+	}
+
+	my $event_name = get_db_value($dbh, 'SELECT user_comment FROM ' . $event_table . ' WHERE id_evento = ?',$id_event);
 
 	return defined ($event_name) ? $event_name : -1;
 }
@@ -4454,6 +5099,864 @@ sub cli_delete_special_day() {
 	exist_check($result,'special day',$special_day);
 }
 
+##############################################################################
+# Creates a new visual console.
+# Related option: --create_visual_console
+##############################################################################
+
+sub cli_create_visual_console() {
+	my ($name,$background,$width,$height,$group,$mode,$element_square_positions,$background_color,$elements) = @ARGV[2..10];
+
+	if($name eq '') {
+		print_log "[ERROR] Name field cannot be empty.\n\n";
+		exit 1;
+	}
+	elsif ($background eq '') {
+		print_log "[ERROR] Background field cannot be empty.\n\n";
+		exit 1;
+	}
+	elsif (($width eq '') || ($height eq '')) {
+		print_log "[ERROR] Please specify size.\n\n";
+		exit 1;
+	}
+	elsif ($group eq '') {
+		print_log "[ERROR] Group field cannot be empty.\n\n";
+		exit 1;
+	}
+	elsif ($mode eq '') {
+		print_log "[ERROR] Mode parameter must be 'static_objects' or 'auto_creation'.\n\n";
+		exit 1;
+	}
+
+	if ($background_color eq '') {
+		$background_color = '#FFF';
+	}
+
+	print_log "[INFO] Creating visual console '$name' \n\n";
+
+	my $vc_id = db_insert ($dbh, 'id', 'INSERT INTO tlayout (name, id_group, background, width, height, background_color)
+                         VALUES (?, ?, ?, ?, ?, ?)', safe_input($name), $group, $background, $width, $height, $background_color);
+
+	print_log "[INFO] The visual console id is '$vc_id' \n\n";
+
+	if ($elements ne '') {
+		my $elements_in_array = decode_json($elements);
+
+		if ($mode eq 'static_objects') {
+			my $elem_count = 1;
+
+			foreach my $elem (@$elements_in_array) {
+				my $pos_x = $elem->{'pos_x'};
+				my $pos_y = $elem->{'pos_y'};
+				my $width = $elem->{'width'};
+				my $height = $elem->{'height'};
+				my $label = $elem->{'label'};
+				my $image = $elem->{'image'};
+				my $type = $elem->{'type'};
+				my $period = $elem->{'period'};
+				my $id_agente_modulo = $elem->{'id_agente_modulo'};
+				my $id_agent = $elem->{'id_agent'};
+				my $id_layout_linked = $elem->{'id_layout_linked'};
+				my $parent_item = 0;
+				my $enable_link = $elem->{'enable_link'};
+				my $id_metaconsole = $elem->{'id_metaconsole'};
+				my $id_group = $elem->{'id_group'};
+				my $id_custom_graph = $elem->{'id_custom_graph'};
+				my $border_width = $elem->{'border_width'};
+				my $type_graph = $elem->{'type_graph'};
+				my $label_position = $elem->{'label_position'};
+				my $border_color = $elem->{'border_color'};
+				my $fill_color = $elem->{'fill_color'};
+				my $show_statistics = $elem->{'fill_color'};
+				my $id_layout_linked_weight = $elem->{'id_layout_linked_weight'};
+				my $element_group = $elem->{'element_group'};
+				my $show_on_top = $elem->{'show_on_top'};
+
+				my $elem_id = db_insert ($dbh, 'id', 'INSERT INTO tlayout_data (id_layout, pos_x, pos_y, height, width, label, image, type, period, id_agente_modulo, id_agent, id_layout_linked, parent_item, enable_link, id_metaconsole, id_group, id_custom_graph, border_width, type_graph, label_position, border_color, fill_color, show_statistics, id_layout_linked_weight, element_group, show_on_top)
+							VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', $vc_id, $pos_x, $pos_y, $height, $width, $label, $image, $type, $period, $id_agente_modulo, $id_agent, $id_layout_linked, $parent_item, $enable_link, $id_metaconsole, $id_group, $id_custom_graph, $border_width, $type_graph, $label_position, $border_color, $fill_color, 0, $id_layout_linked_weight, $element_group, $show_on_top);
+
+				print_log "[INFO] The element id in position $elem_count is '$elem_id' \n\n";
+
+				$elem_count++;
+			}
+		}
+		elsif ($mode eq 'auto_creation') {
+			if ($element_square_positions eq '') {
+				print_log "[ERROR] With this mode, square positions is obligatory'.\n\n";
+				exit 1;
+			}
+			else {
+				my $positions = decode_json($element_square_positions);
+
+				my $pos1X = $positions->{'pos1x'};
+				my $pos1Y = $positions->{'pos1y'};
+				my $pos2X = $positions->{'pos2x'};
+				my $pos2Y = $positions->{'pos2y'};
+
+				my $number_of_elements = scalar(@$elements_in_array);
+				
+				my $x_divider = 8;
+				my $y_divider = 1;
+
+				for (my $i = 1; $i <= 1000; $i++) {
+					if (($i * 8) < $number_of_elements) {
+						$y_divider++;
+					}
+					else {
+						last;
+					}
+				}
+
+				my $elem_width = ($pos2X - $pos1X) / $x_divider;
+				my $elem_height = ($pos2Y - $pos1Y) / $y_divider;
+
+				if ($number_of_elements <= 8) {
+					$elem_height = ($pos2Y - $pos1Y) / 4;
+				}
+
+				my $elem_count = 1;
+				my $pos_aux_count = 0;
+				my $pos_helper_x = $pos1X;
+				my $pos_helper_y = $pos1Y;
+				foreach my $elem (@$elements_in_array) {
+					my $pos_x = $pos_helper_x;
+					my $pos_y = $pos_helper_y;
+					my $width = $elem_width;
+					my $height = $elem_height;
+					my $label = $elem->{'label'};
+					my $image = $elem->{'image'};
+					my $type = $elem->{'type'};
+					my $period = $elem->{'period'};
+					my $id_agente_modulo = $elem->{'id_agente_modulo'};
+					my $id_agent = $elem->{'id_agent'};
+					my $id_layout_linked = $elem->{'id_layout_linked'};
+					my $parent_item = $elem->{'parent_item'};
+					my $enable_link = $elem->{'enable_link'};
+					my $id_metaconsole = $elem->{'id_metaconsole'};
+					my $id_group = $elem->{'id_group'};
+					my $id_custom_graph = $elem->{'id_custom_graph'};
+					my $border_width = $elem->{'border_width'};
+					my $type_graph = $elem->{'type_graph'};
+					my $label_position = $elem->{'label_position'};
+					my $border_color = $elem->{'border_color'};
+					my $fill_color = $elem->{'fill_color'};
+					my $id_layout_linked_weight = $elem->{'id_layout_linked_weight'};
+					my $element_group = $elem->{'element_group'};
+					my $show_on_top = $elem->{'show_on_top'};
+					
+
+					my $elem_id = db_insert ($dbh, 'id', 'INSERT INTO tlayout_data (id_layout, pos_x, pos_y, height, width, label, image, type, period, id_agente_modulo, id_agent, id_layout_linked, parent_item, enable_link, id_metaconsole, id_group, id_custom_graph, border_width, type_graph, label_position, border_color, fill_color, show_statistics, id_layout_linked_weight, element_group, show_on_top)
+								VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', $vc_id, $pos_x, $pos_y, $height, $width, $label, $image, $type, $period, $id_agente_modulo, $id_agent, $id_layout_linked, $parent_item, $enable_link, $id_metaconsole, $id_group, $id_custom_graph, $border_width, $type_graph, $label_position, $border_color, $fill_color, 0, $id_layout_linked_weight, $element_group, $show_on_top);
+
+					print_log "[INFO] The element id in position $elem_count is '$elem_id' \n\n";
+
+					$elem_count++;
+
+					if ($pos_aux_count == 7) {
+						$pos_helper_x = $pos1X;
+						$pos_helper_y += $elem_height;
+						$pos_aux_count = 0;
+					}
+					else {
+						$pos_aux_count++;
+						$pos_helper_x += $elem_width;
+					}
+				}
+			}
+		}
+		else {
+			print_log "[ERROR] Mode parameter must be 'static_objects' or 'auto_creation'.\n\n";
+			exit 1;
+		}
+	}
+}
+
+##############################################################################
+# Edit a visual console.
+# Related option: --edit_visual_console
+##############################################################################
+
+sub cli_edit_visual_console() {
+	my ($id,$name,$background,$width,$height,$group,$mode,$element_square_positions,$background_color,$elements) = @ARGV[2..11];
+
+	if($id eq '') {
+		print_log "[ERROR] ID field cannot be empty.\n\n";
+		exit 1;
+	}
+
+	my $console = get_db_single_row ($dbh, "SELECT * 
+			FROM tlayout 
+			WHERE id = $id");
+
+	my $new_name = $console->{'name'};
+	my $new_background = $console->{'background'};
+	my $new_console_width = $console->{'width'};
+	my $new_console_height = $console->{'height'};
+	my $new_console_id_group = $console->{'id_group'};
+	my $new_background_color = $console->{'background_color'};
+
+	if($name ne '') {
+		$new_name = $name;
+	}
+	if ($background ne '') {
+		$new_background = $background;
+	}
+	if ($width ne '') {
+		$new_console_width = $width;
+	}
+	if ($height ne '') {
+		$new_console_height = $height;
+	}
+	if ($group ne '') {
+		$new_console_id_group = $group;
+	}
+	if ($background_color ne '') {
+		$new_background_color = $background_color;
+	}
+
+	print_log "[INFO] The visual console with id $id is updated \n\n";
+
+	db_update ($dbh, "UPDATE tlayout SET name = '" . $new_name . "', background = '" . $new_background . "', width = " . $new_console_width . ", height = " . $new_console_height . ", id_group = " . $new_console_id_group . ", background_color = '" . $new_background_color . "' WHERE id = " . $id);
+
+	if ($elements ne '') {
+		my $elements_in_array = decode_json($elements);
+
+		if ($mode eq 'static_objects') {
+			foreach my $elem (@$elements_in_array) {
+				if (defined($elem->{'id'})) {
+
+					print_log "[INFO] Edit element with id " . $elem->{'id'} . " \n\n";
+
+					my $element_in_db = get_db_single_row ($dbh, "SELECT * 
+						FROM tlayout_data 
+						WHERE id = " . $elem->{'id'});
+
+					my $new_pos_x = $element_in_db->{'pos_x'};
+					my $new_pos_y = $element_in_db->{'pos_y'};
+					my $new_width = $element_in_db->{'width'};
+					my $new_height = $element_in_db->{'height'};
+					my $new_label = $element_in_db->{'label'};
+					my $new_image = $element_in_db->{'image'};
+					my $new_type = $element_in_db->{'type'};
+					my $new_period = $element_in_db->{'period'};
+					my $new_id_agente_modulo = $element_in_db->{'id_agente_modulo'};
+					my $new_id_agent = $element_in_db->{'id_agent'};
+					my $new_id_layout_linked = $element_in_db->{'id_layout_linked'};
+					my $new_parent_item = $element_in_db->{'parent_item'};
+					my $new_enable_link = $element_in_db->{'enable_link'};
+					my $new_id_metaconsole = $element_in_db->{'id_metaconsole'};
+					my $new_id_group = $element_in_db->{'id_group'};
+					my $new_id_custom_graph = $element_in_db->{'id_custom_graph'};
+					my $new_border_width = $element_in_db->{'border_width'};
+					my $new_type_graph = $element_in_db->{'type_graph'};
+					my $new_label_position = $element_in_db->{'label_position'};
+					my $new_border_color = $element_in_db->{'border_color'};
+					my $new_fill_color = $element_in_db->{'fill_color'};
+					my $new_id_layout_linked_weight = $elem->{'id_layout_linked_weight'};
+					my $new_element_group = $elem->{'element_group'};
+					my $new_show_on_top = $elem->{'show_on_top'};
+
+					if(defined($elem->{'pos_x'})) {
+						$new_pos_x = $elem->{'pos_x'};
+					}
+					if(defined($elem->{'pos_y'})) {
+						$new_pos_y = $elem->{'pos_y'};
+					}
+					if(defined($elem->{'width'})) {
+						$new_width = $elem->{'width'};
+					}
+					if(defined($elem->{'height'})) {
+						$new_height = $elem->{'height'};
+					}
+					if(defined($elem->{'label'})) {
+						$new_label = $elem->{'label'};
+					}
+					if(defined($elem->{'image'})) {
+						$new_image = $elem->{'image'};
+					}
+					if(defined($elem->{'type'})) {
+						$new_type = $elem->{'type'};
+					}
+					if(defined($elem->{'period'})) {
+						$new_period = $elem->{'period'};
+					}
+					if(defined($elem->{'id_agente_modulo'})) {
+						$new_id_agente_modulo = $elem->{'id_agente_modulo'};
+					}
+					if(defined($elem->{'id_agent'})) {
+						$new_id_agent = $elem->{'id_agent'};
+					}
+					if(defined($elem->{'id_layout_linked'})) {
+						$new_id_layout_linked = $elem->{'id_layout_linked'};
+					}
+					if(defined($elem->{'parent_item'})) {
+						$new_parent_item = $elem->{'parent_item'};
+					}
+					if(defined($elem->{'enable_link'})) {
+						$new_enable_link = $elem->{'enable_link'};
+					}
+					if(defined($elem->{'id_metaconsole'})) {
+						$new_id_metaconsole = $elem->{'id_metaconsole'};
+					}
+					if(defined($elem->{'id_group'})) {
+						$new_id_group = $elem->{'id_group'};
+					}
+					if(defined($elem->{'id_custom_graph'})) {
+						$new_id_custom_graph = $elem->{'id_custom_graph'};
+					}
+					if(defined($elem->{'border_width'})) {
+						$new_border_width = $elem->{'border_width'};
+					}
+					if(defined($elem->{'type_graph'})) {
+						$new_type_graph = $elem->{'type_graph'};
+					}
+					if(defined($elem->{'label_position'})) {
+						$new_label_position = $elem->{'label_position'};
+					}
+					if(defined($elem->{'border_color'})) {
+						$new_border_color = $elem->{'border_color'};
+					}
+					if(defined($elem->{'fill_color'})) {
+						$new_fill_color = $elem->{'fill_color'};
+					}
+					if(defined($elem->{'id_layout_linked_weight'})) {
+						$new_id_layout_linked_weight = $elem->{'id_layout_linked_weight'};
+					}
+					if(defined($elem->{'element_group'})) {
+						$new_element_group = $elem->{'element_group'};
+					}
+					if(defined($elem->{'show_on_top'})) {
+						$new_show_on_top = $elem->{'show_on_top'};
+					}
+
+					db_update ($dbh, "UPDATE tlayout_data SET pos_x = " . $new_pos_x . ", pos_y = " . $new_pos_y . ", width = " . $new_width . 
+						", height = " . $new_height . ", label = '" . $new_label . "', image = '" . $new_image . 
+						"', type = " . $new_type . ", period = " . $new_period . ", id_agente_modulo = " . $new_id_agente_modulo . 
+						", id_agent = " . $new_id_agent . ", id_layout_linked = " . $new_id_layout_linked . ", parent_item = " . $new_parent_item . 
+						", enable_link = " . $new_enable_link . ", id_metaconsole = " . $new_id_metaconsole . ", id_group = " . $new_id_group . 
+						", id_custom_graph = " . $new_id_custom_graph . ", border_width = " . $new_border_width . ", type_graph = '" . $new_type_graph . 
+						"', label_position = '" . $new_label_position . "', border_color = '" . $new_border_color . "', fill_color = '" . $new_fill_color . 
+						"', id_layout_linked_weight = '" . $new_id_layout_linked_weight . "', element_group = '" . $new_element_group . "', show_on_top = '" . $new_show_on_top . 
+						"' WHERE id = " . $elem->{'id'});
+					
+					print_log "[INFO] Element with id " . $elem->{'id'} . " has been updated \n\n";
+				}
+				else {
+					my $pos_x = $elem->{'pos_x'};
+					my $pos_y = $elem->{'pos_y'};
+					my $width = $elem->{'width'};
+					my $height = $elem->{'height'};
+					my $label = $elem->{'label'};
+					my $image = $elem->{'image'};
+					my $type = $elem->{'type'};
+					my $period = $elem->{'period'};
+					my $id_agente_modulo = $elem->{'id_agente_modulo'};
+					my $id_agent = $elem->{'id_agent'};
+					my $id_layout_linked = $elem->{'id_layout_linked'};
+					my $parent_item = $elem->{'parent_item'};
+					my $enable_link = $elem->{'enable_link'};
+					my $id_metaconsole = $elem->{'id_metaconsole'};
+					my $id_group = $elem->{'id_group'};
+					my $id_custom_graph = $elem->{'id_custom_graph'};
+					my $border_width = $elem->{'border_width'};
+					my $type_graph = $elem->{'type_graph'};
+					my $label_position = $elem->{'label_position'};
+					my $border_color = $elem->{'border_color'};
+					my $fill_color = $elem->{'fill_color'};
+					my $id_layout_linked_weight = $elem->{'id_layout_linked_weight'};
+					my $element_group = $elem->{'element_group'};
+					my $show_on_top = $elem->{'show_on_top'};
+
+					my $new_elem_id = db_insert ($dbh, 'id', 'INSERT INTO tlayout_data (id_layout, pos_x, pos_y, height, width, label, image, type, period, id_agente_modulo, id_agent, id_layout_linked, parent_item, enable_link, id_metaconsole, id_group, id_custom_graph, border_width, type_graph, label_position, border_color, fill_color, show_statistics, id_layout_linked_weight, element_group, show_on_top)
+						VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', $id, $pos_x, $pos_y, $height, $width, $label, $image, $type, $period, $id_agente_modulo, $id_agent, $id_layout_linked, $parent_item, $enable_link, $id_metaconsole, $id_group, $id_custom_graph, $border_width, $type_graph, $label_position, $border_color, $fill_color, 0, $id_layout_linked_weight, $element_group, $show_on_top);
+				
+					print_log "[INFO] New element with id $new_elem_id has been created \n\n";
+				}
+			}
+		}
+		elsif ($mode eq 'auto_creation') {
+			if ($element_square_positions eq '') {
+				print_log "[ERROR] With this mode, square positions is obligatory'.\n\n";
+				exit 1;
+			}
+			else {
+				foreach my $elem (@$elements_in_array) {
+					if (defined($elem->{'id'})) {
+						print_log "[INFO] Edit element with id " . $elem->{'id'} . " \n\n";
+
+						my $element_in_db = get_db_single_row ($dbh, "SELECT * 
+							FROM tlayout_data 
+							WHERE id = " . $elem->{'id'});
+
+						my $new_pos_x = $element_in_db->{'pos_x'};
+						my $new_pos_y = $element_in_db->{'pos_y'};
+						my $new_width = $element_in_db->{'width'};
+						my $new_height = $element_in_db->{'height'};
+						my $new_label = $element_in_db->{'label'};
+						my $new_image = $element_in_db->{'image'};
+						my $new_type = $element_in_db->{'type'};
+						my $new_period = $element_in_db->{'period'};
+						my $new_id_agente_modulo = $element_in_db->{'id_agente_modulo'};
+						my $new_id_agent = $element_in_db->{'id_agent'};
+						my $new_id_layout_linked = $element_in_db->{'id_layout_linked'};
+						my $new_parent_item = $element_in_db->{'parent_item'};
+						my $new_enable_link = $element_in_db->{'enable_link'};
+						my $new_id_metaconsole = $element_in_db->{'id_metaconsole'};
+						my $new_id_group = $element_in_db->{'id_group'};
+						my $new_id_custom_graph = $element_in_db->{'id_custom_graph'};
+						my $new_border_width = $element_in_db->{'border_width'};
+						my $new_type_graph = $element_in_db->{'type_graph'};
+						my $new_label_position = $element_in_db->{'label_position'};
+						my $new_border_color = $element_in_db->{'border_color'};
+						my $new_fill_color = $element_in_db->{'fill_color'};
+						my $new_id_layout_linked_weight = $elem->{'id_layout_linked_weight'};
+						my $new_element_group = $elem->{'element_group'};
+						my $new_show_on_top = $elem->{'show_on_top'};
+
+						if(defined($elem->{'width'})) {
+							$new_width = $elem->{'width'};
+						}
+						if(defined($elem->{'height'})) {
+							$new_height = $elem->{'height'};
+						}
+						if(defined($elem->{'label'})) {
+							$new_label = $elem->{'label'};
+						}
+						if(defined($elem->{'image'})) {
+							$new_image = $elem->{'image'};
+						}
+						if(defined($elem->{'type'})) {
+							$new_type = $elem->{'type'};
+						}
+						if(defined($elem->{'period'})) {
+							$new_period = $elem->{'period'};
+						}
+						if(defined($elem->{'id_agente_modulo'})) {
+							$new_id_agente_modulo = $elem->{'id_agente_modulo'};
+						}
+						if(defined($elem->{'id_agent'})) {
+							$new_id_agent = $elem->{'id_agent'};
+						}
+						if(defined($elem->{'id_layout_linked'})) {
+							$new_id_layout_linked = $elem->{'id_layout_linked'};
+						}
+						if(defined($elem->{'parent_item'})) {
+							$new_parent_item = $elem->{'parent_item'};
+						}
+						if(defined($elem->{'enable_link'})) {
+							$new_enable_link = $elem->{'enable_link'};
+						}
+						if(defined($elem->{'id_metaconsole'})) {
+							$new_id_metaconsole = $elem->{'id_metaconsole'};
+						}
+						if(defined($elem->{'id_group'})) {
+							$new_id_group = $elem->{'id_group'};
+						}
+						if(defined($elem->{'id_custom_graph'})) {
+							$new_id_custom_graph = $elem->{'id_custom_graph'};
+						}
+						if(defined($elem->{'border_width'})) {
+							$new_border_width = $elem->{'border_width'};
+						}
+						if(defined($elem->{'type_graph'})) {
+							$new_type_graph = $elem->{'type_graph'};
+						}
+						if(defined($elem->{'label_position'})) {
+							$new_label_position = $elem->{'label_position'};
+						}
+						if(defined($elem->{'border_color'})) {
+							$new_border_color = $elem->{'border_color'};
+						}
+						if(defined($elem->{'fill_color'})) {
+							$new_fill_color = $elem->{'fill_color'};
+						}
+						if(defined($elem->{'id_layout_linked_weight'})) {
+							$new_id_layout_linked_weight = $elem->{'id_layout_linked_weight'};
+						}
+						if(defined($elem->{'element_group'})) {
+							$new_element_group = $elem->{'element_group'};
+						}
+						if(defined($elem->{'show_on_top'})) {
+							$new_show_on_top = $elem->{'show_on_top'};
+						}
+
+						db_update ($dbh, "UPDATE tlayout_data SET pos_x = " . $new_pos_x . ", pos_y = " . $new_pos_y . ", width = " . $new_width . 
+							", height = " . $new_height . ", label = '" . $new_label . "', image = '" . $new_image . 
+							"', type = " . $new_type . ", period = " . $new_period . ", id_agente_modulo = " . $new_id_agente_modulo . 
+							", id_agent = " . $new_id_agent . ", id_layout_linked = " . $new_id_layout_linked . ", parent_item = " . $new_parent_item . 
+							", enable_link = " . $new_enable_link . ", id_metaconsole = " . $new_id_metaconsole . ", id_group = " . $new_id_group . 
+							", id_custom_graph = " . $new_id_custom_graph . ", border_width = " . $new_border_width . ", type_graph = '" . $new_type_graph . 
+							"', label_position = '" . $new_label_position . "', border_color = '" . $new_border_color . "', fill_color = '" . $new_fill_color . 
+							"', id_layout_linked_weight = '" . $new_id_layout_linked_weight . "', element_group = '" . $new_element_group . "', show_on_top = '" . $new_show_on_top . 
+							"' WHERE id = " . $elem->{'id'});
+						
+						print_log "[INFO] Element with id " . $elem->{'id'} . " has been updated \n\n";
+					}
+					else {
+						my $pos_x = 0;
+						my $pos_y = 0;
+						my $width = $elem->{'width'};
+						my $height = $elem->{'height'};
+						my $label = $elem->{'label'};
+						my $image = $elem->{'image'};
+						my $type = $elem->{'type'};
+						my $period = $elem->{'period'};
+						my $id_agente_modulo = $elem->{'id_agente_modulo'};
+						my $id_agent = $elem->{'id_agent'};
+						my $id_layout_linked = $elem->{'id_layout_linked'};
+						my $parent_item = $elem->{'parent_item'};
+						my $enable_link = $elem->{'enable_link'};
+						my $id_metaconsole = $elem->{'id_metaconsole'};
+						my $id_group = $elem->{'id_group'};
+						my $id_custom_graph = $elem->{'id_custom_graph'};
+						my $border_width = $elem->{'border_width'};
+						my $type_graph = $elem->{'type_graph'};
+						my $label_position = $elem->{'label_position'};
+						my $border_color = $elem->{'border_color'};
+						my $fill_color = $elem->{'fill_color'};
+						my $id_layout_linked_weight = $elem->{'id_layout_linked_weight'};
+						my $element_group = $elem->{'element_group'};
+						my $show_on_top = $elem->{'show_on_top'};
+
+						my $new_elem_id = db_insert ($dbh, 'id', 'INSERT INTO tlayout_data (id_layout, pos_x, pos_y, height, width, label, image, type, period, id_agente_modulo, id_agent, id_layout_linked, parent_item, enable_link, id_metaconsole, id_group, id_custom_graph, border_width, type_graph, label_position, border_color, fill_color, show_statistics, id_layout_linked_weight, element_group, show_on_top)
+							VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', $id, $pos_x, $pos_y, $height, $width, $label, $image, $type, $period, $id_agente_modulo, $id_agent, $id_layout_linked, $parent_item, $enable_link, $id_metaconsole, $id_group, $id_custom_graph, $border_width, $type_graph, $label_position, $border_color, $fill_color, 0, $id_layout_linked_weight, $element_group, $show_on_top);
+					
+						print_log "[INFO] New element with id $new_elem_id has been created \n\n";
+					}
+				}
+
+				my $positions = decode_json($element_square_positions);
+
+				my $pos1X = $positions->{'pos1x'};
+				my $pos1Y = $positions->{'pos1y'};
+				my $pos2X = $positions->{'pos2x'};
+				my $pos2Y = $positions->{'pos2y'};
+
+				my @console_elements = get_db_rows ($dbh, "SELECT * 
+						FROM tlayout_data 
+						WHERE id_layout = $id");
+
+				my $number_of_elements = scalar(@console_elements);
+
+				my $x_divider = 4;
+				my $y_divider = 1;
+
+				for (my $i = 1; $i <= 1000; $i++) {
+					if (($i * 4) < $number_of_elements) {
+						$y_divider++;
+					}
+					else {
+						last;
+					}
+				}
+
+				my $elem_width = ($pos2X - $pos1X) / $x_divider;
+				my $elem_height = ($pos2Y - $pos1Y) / $y_divider;
+
+				if ($number_of_elements < 4) {
+					$elem_height = ($pos2Y - $pos1Y) / 3;
+				}
+
+				my $elem_count = 1;
+				my $pos_helper_x = 0;
+				my $pos_helper_y = 0;
+				foreach my $elem (@console_elements) {
+					my $new_pos_x = $pos_helper_x * $elem_width;
+					my $new_pos_y = $pos_helper_y * $elem_height;
+					my $new_elem_width = $elem_width;
+					my $new_elem_height = $elem_height;
+
+					db_update ($dbh, "UPDATE tlayout_data SET pos_x = " . $new_pos_x . ", pos_y = " . $new_pos_y . 
+							", width = " . $new_elem_width . ", height = " . $new_elem_height . 
+							" WHERE id = " . $elem->{'id'});
+
+					print_log "[INFO] Recolocate element with id " . $elem->{'id'} . " \n\n";
+
+					$elem_count++;
+
+					if ($pos_helper_x == 3) {
+						$pos_helper_x = 0;
+						$pos_helper_y++;
+					}
+					else {
+						$pos_helper_x++;
+					}
+				}
+			}
+		}
+		else {
+			print_log "[ERROR] Mode parameter must be 'static_objects' or 'auto_creation'.\n\n";
+			exit 1;
+		}
+	}
+}
+
+##############################################################################
+# Delete a visual console.
+# Related option: --delete_visual_console
+##############################################################################
+
+sub cli_delete_visual_console() {
+	my ($id) = @ARGV[2];
+
+	if($id eq '') {
+		print_log "[ERROR] ID field cannot be empty.\n\n";
+		exit 1;
+	}
+
+	print_log "[INFO] Delete visual console with ID '$id' \n\n";
+
+	my $delete_layout = db_do($dbh, 'DELETE FROM tlayout WHERE id = ?', $id);
+
+	if ($delete_layout eq 1) {
+		db_do($dbh, 'DELETE FROM tlayout_data WHERE id_layout = ?', $id);
+
+		print_log "[INFO] Delete visual console elements with console ID '$id' \n\n";
+	}
+	else {
+		print_log "[ERROR] Error at remove the visual console.\n\n";
+		exit 1;
+	}
+}
+
+##############################################################################
+# Delete a visual console objects.
+# Related option: --delete_visual_console_objects
+##############################################################################
+
+sub cli_delete_visual_console_objects() {
+	my ($id_console,$mode,$id_mode) = @ARGV[2..4];
+
+	if($id_console eq '') {
+		print_log "[ERROR] Console ID field cannot be empty.\n\n";
+		exit 1;
+	}
+	elsif ($mode eq '') {
+		print_log "[ERROR] Mode field cannot be empty.\n\n";
+		exit 1;
+	}
+	elsif ($id_mode eq '') {
+		print_log "[ERROR] Mode index field cannot be empty.\n\n";
+		exit 1;
+	}
+
+	if (($mode eq 'type') || ($mode eq 'image') || ($mode eq 'id_agent') || 
+		($mode eq 'id_agente_modulo') || ($mode eq 'id_group') || ($mode eq 'type_graph')) {
+		print_log "[INFO] Removind objects with mode '$mode' and id '$id_mode' \n\n";
+		
+		db_do($dbh, 'DELETE FROM tlayout_data WHERE id_layout = ' . $id_console . ' AND ' . $mode . ' = "' . $id_mode . '"');
+	}
+	else {
+		print_log "[ERROR] Mode is not correct.\n\n";
+		exit 1;
+	}
+}
+
+##############################################################################
+# Duplicate a visual console.
+# Related option: --duplicate_visual_console
+##############################################################################
+
+sub cli_duplicate_visual_console () {
+	my ($id_console,$times,$prefix) = @ARGV[2..4];
+
+	if($id_console eq '') {
+		print_log "[ERROR] Console ID field cannot be empty.\n\n";
+		exit 1;
+	}
+
+	my $console = get_db_single_row ($dbh, "SELECT * 
+			FROM tlayout 
+			WHERE id = $id_console");
+
+	my $name_to_compare = $console->{'name'};
+	my $new_name = $console->{'name'} . "_1";
+	my $name_count = 2;
+
+	if ($prefix ne '') {
+		$new_name = $prefix;
+		$name_to_compare = $prefix;
+		$name_count = 1;
+	}
+
+	for (my $iteration = 0; $iteration < $times; $iteration++) {
+		my $exist = 1;
+		while ($exist == 1) {
+			my $name_in_db = get_db_single_row ($dbh, "SELECT name FROM tlayout WHERE name = '$new_name'");
+			
+			if (defined($name_in_db->{'name'}) && ($name_in_db->{'name'} eq $new_name)) {
+				$new_name = $name_to_compare . "_" . $name_count;
+				$name_count++;
+			}
+			else {
+				$exist = 0;
+			}
+		}
+
+		my $new_console_id = db_insert ($dbh, 'id', 'INSERT INTO tlayout (name, id_group, background, width, height, background_color)
+							VALUES (?, ?, ?, ?, ?, ?)', $new_name, $console->{'id_group'}, $console->{'background'}, $console->{'width'}, $console->{'height'}, $console->{'background_color'});
+		
+		print_log "[INFO] The new visual console '$new_name' has been created. The new ID is '$new_console_id' \n\n";
+
+		my @console_elements = get_db_rows ($dbh, "SELECT * 
+				FROM tlayout_data 
+				WHERE id_layout = $id_console");
+
+		foreach my $element (@console_elements) {
+			my $pos_x = $element->{'pos_x'};
+			my $pos_y = $element->{'pos_y'};
+			my $width = $element->{'width'};
+			my $height = $element->{'height'};
+			my $label = $element->{'label'};
+			my $image = $element->{'image'};
+			my $type = $element->{'type'};
+			my $period = $element->{'period'};
+			my $id_agente_modulo = $element->{'id_agente_modulo'};
+			my $id_agent = $element->{'id_agent'};
+			my $id_layout_linked = $element->{'id_layout_linked'};
+			my $parent_item = $element->{'parent_item'};
+			my $enable_link = $element->{'enable_link'};
+			my $id_metaconsole = $element->{'id_metaconsole'};
+			my $id_group = $element->{'id_group'};
+			my $id_custom_graph = $element->{'id_custom_graph'};
+			my $border_width = $element->{'border_width'};
+			my $type_graph = $element->{'type_graph'};
+			my $label_position = $element->{'label_position'};
+			my $border_color = $element->{'border_color'};
+			my $fill_color = $element->{'fill_color'};
+			my $id_layout_linked_weight = $element->{'id_layout_linked_weight'};
+			my $element_group = $element->{'element_group'};
+			my $show_on_top = $element->{'show_on_top'};
+
+			my $element_id = db_insert ($dbh, 'id', 'INSERT INTO tlayout_data (id_layout, pos_x, pos_y, height, width, label, image, type, period, id_agente_modulo, id_agent, id_layout_linked, parent_item, enable_link, id_metaconsole, id_group, id_custom_graph, border_width, type_graph, label_position, border_color, fill_color, show_statistics, id_layout_linked_weight, element_group, show_on_top)
+						VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', $new_console_id, $pos_x, $pos_y, $height, $width, $label, $image, $type, $period, $id_agente_modulo, $id_agent, $id_layout_linked, $parent_item, $enable_link, $id_metaconsole, $id_group, $id_custom_graph, $border_width, $type_graph, $label_position, $border_color, $fill_color, 0, $id_layout_linked_weight, $element_group, $show_on_top);
+		
+			print_log "[INFO] Element with ID " . $element->{"id"} . " has been duplicated to the new console \n\n";
+		}
+	}
+}
+
+##############################################################################
+# Export a visual console elements to json.
+# Related option: --export_json_visual_console
+##############################################################################
+
+sub cli_export_visual_console() {
+	my ($id,$path,$with_id) = @ARGV[2..4];
+
+	if($id eq '') {
+		print_log "[ERROR] ID field cannot be empty.\n\n";
+		exit 1;
+	}
+
+	my $data_to_json = '';
+	my $first = 1;
+
+	print_log "[INFO] Exporting visual console elements with ID '$id' \n\n";
+
+	my $console = get_db_single_row ($dbh, "SELECT * 
+			FROM tlayout 
+			WHERE id = $id");
+
+	$data_to_json .= '"' . safe_output($console->{'name'}) . '"';
+	$data_to_json .= ' "' . $console->{'background'} . '"';
+	$data_to_json .= ' ' . $console->{'width'};
+	$data_to_json .= ' ' . $console->{'height'};
+	$data_to_json .= ' ' . $console->{'id_group'};
+	$data_to_json .= ' "static_objects"';
+	$data_to_json .= ' ""';
+	$data_to_json .= ' "' . $console->{'background_color'} . '" ';
+
+	my @console_elements = get_db_rows ($dbh, "SELECT * 
+			FROM tlayout_data 
+			WHERE id_layout = $id");
+
+	$data_to_json .= "'[";
+	foreach my $element (@console_elements) {
+		my $id_layout_data = $element->{'id'};
+		my $pos_x = $element->{'pos_x'};
+		my $pos_y = $element->{'pos_y'};
+		my $width = $element->{'width'};
+		my $height = $element->{'height'};
+		my $label = $element->{'label'};
+		my $image = $element->{'image'};
+		my $type = $element->{'type'};
+		my $period = $element->{'period'};
+		my $id_agente_modulo = $element->{'id_agente_modulo'};
+		my $id_agent = $element->{'id_agent'};
+		my $id_layout_linked = $element->{'id_layout_linked'};
+		my $parent_item = $element->{'parent_item'};
+		my $enable_link = $element->{'enable_link'};
+		my $id_metaconsole = $element->{'id_metaconsole'};
+		my $id_group = $element->{'id_group'};
+		my $id_custom_graph = $element->{'id_custom_graph'};
+		my $border_width = $element->{'border_width'};
+		my $type_graph = $element->{'type_graph'};
+		my $label_position = $element->{'label_position'};
+		my $border_color = $element->{'border_color'};
+		my $fill_color = $element->{'fill_color'};
+		my $id_layout_linked_weight = $element->{'id_layout_linked_weight'};
+		my $element_group = $element->{'element_group'};
+		my $show_on_top = $element->{'show_on_top'};
+
+		if ($first == 0) {
+			$data_to_json .= ','
+		}
+		else {
+			$first = 0;
+		}
+
+		$label =~ s/"/\\"/g;
+
+		if ($with_id == 1) {
+			$data_to_json .= '{"id":' . $id_layout_data;
+			$data_to_json .= ',"image":"' . $image . '"';
+		}
+		else {
+			$data_to_json .= '{"image":"' . $image . '"';
+		}
+		$data_to_json .= ',"pos_y":' . $pos_y;
+		$data_to_json .= ',"pos_x":' . $pos_x;
+		$data_to_json .= ',"width":' . $width;
+		$data_to_json .= ',"height":' . $height;
+		$data_to_json .= ',"label":"' . $label . '"';
+		$data_to_json .= ',"type":' . $type;
+		$data_to_json .= ',"period":' . $period;
+		$data_to_json .= ',"id_agente_modulo":' . $id_agente_modulo;
+		$data_to_json .= ',"id_agent":' . $id_agent;
+		$data_to_json .= ',"id_layout_linked":' . $id_layout_linked;
+		$data_to_json .= ',"parent_item":' . $parent_item;
+		$data_to_json .= ',"enable_link":' . $enable_link;
+		$data_to_json .= ',"id_metaconsole":' . $id_metaconsole;
+		$data_to_json .= ',"id_group":' . $id_group;
+		$data_to_json .= ',"id_custom_graph":' . $id_custom_graph;
+		$data_to_json .= ',"border_width":' . $border_width;
+		$data_to_json .= ',"type_graph":"' . $type_graph . '"';
+		$data_to_json .= ',"label_position":"' . $label_position . '"';
+		$data_to_json .= ',"border_color":"' . $border_color . '"';
+		$data_to_json .= ',"fill_color":"' . $fill_color . '"';
+		$data_to_json .= ',"id_layout_linked_weight":' . $id_layout_linked_weight;
+		$data_to_json .= ',"element_group":' . $element_group;
+		$data_to_json .= ',"show_on_top":' . $show_on_top;
+		$data_to_json .= '}';
+	}
+
+	$data_to_json .= "]'";
+
+	if ($path eq '') {
+		open(FicheroJSON, ">console_" . $id . "_elements");
+	}
+	else {
+		open(FicheroJSON, ">" . $path . "/console_" . $id . "_elements");
+	}
+
+	print FicheroJSON $data_to_json;
+
+	print_log "[INFO] JSON file now contents: \n" . $data_to_json . "\n\n";
+}
+
+
+
 
 ###############################################################################
 ###############################################################################
@@ -4503,6 +6006,10 @@ sub pandora_manage_main ($$$) {
 			param_check($ltotal, 1);
 			cli_disable_double_auth();
 		}
+		elsif ($param eq '--meta_synch_user') {
+			param_check($ltotal, 6, 4);
+			cli_meta_synch_user();
+		}
 		elsif ($param eq '--disable_group') {
 			param_check($ltotal, 1);
 			cli_disable_group();
@@ -4512,7 +6019,7 @@ sub pandora_manage_main ($$$) {
 			cli_enable_group();
 		}
 		elsif ($param eq '--create_agent') {
-			param_check($ltotal, 7, 3);
+			param_check($ltotal, 8, 4);
 			cli_create_agent();
 		}
 		elsif ($param eq '--delete_agent') {
@@ -4520,23 +6027,36 @@ sub pandora_manage_main ($$$) {
 			cli_delete_agent();
 		}
 		elsif ($param eq '--create_data_module') {
-			param_check($ltotal, 27, 24);
+			param_check($ltotal, 30, 24);
 			cli_create_data_module(0);
+		}
+		elsif ($param eq '--create_web_module') {
+			param_check($ltotal, 38, 35);
+			cli_create_web_module(0);
+		}
+
+		elsif ($param eq '--get_module_group') {
+			param_check($ltotal, 1, 1);
+			cli_get_module_group();
 		}
 		elsif ($param eq '--create_module_group') {
 			param_check($ltotal, 1, 1);
 			cli_create_module_group();
 		}
+		elsif ($param eq '--module_group_synch') {
+			param_check($ltotal, 2, 1);
+			cli_module_group_synch();
+		}
 		elsif ($param eq '--create_network_module') {
-			param_check($ltotal, 24, 20);
+			param_check($ltotal, 32, 20);
 			cli_create_network_module(0);
 		}
 		elsif ($param eq '--create_snmp_module') {
-			param_check($ltotal, 35, 28);
+			param_check($ltotal, 40, 28);
 			cli_create_snmp_module(0);
 		}
 		elsif ($param eq '--create_plugin_module') {
-			param_check($ltotal, 29, 19);
+			param_check($ltotal, 34, 19);
 			cli_create_plugin_module(0);
 		}
 		elsif ($param eq '--delete_module') {
@@ -4588,7 +6108,7 @@ sub pandora_manage_main ($$$) {
 			cli_delete_profile();
 		}
 		elsif ($param eq '--create_event') {
-			param_check($ltotal, 14, 11);
+			param_check($ltotal, 18, 15);
 			cli_create_event();
 		}		
 		elsif ($param eq '--validate_event') {
@@ -4616,7 +6136,7 @@ sub pandora_manage_main ($$$) {
 			cli_delete_data($ltotal);
 		}
 		elsif ($param eq '--apply_policy') {
-			param_check($ltotal, 1);
+			param_check($ltotal, 4, 3);
 			cli_apply_policy();
 		}
 		elsif ($param eq '--disable_policy_alerts') {
@@ -4638,6 +6158,10 @@ sub pandora_manage_main ($$$) {
 		elsif ($param eq '--add_agent_to_policy') {
 			param_check($ltotal, 2);
 			cli_policy_add_agent();
+		}
+		elsif ($param eq '--remove_agent_from_policy') {
+			param_check($ltotal, 2);
+			cli_policy_delete_agent();
 		}
 		elsif ($param eq '--enable_user') {
 			param_check($ltotal, 1);
@@ -4672,19 +6196,23 @@ sub pandora_manage_main ($$$) {
 			cli_create_policy();
 		}
 		elsif ($param eq '--create_policy_data_module') {
-			param_check($ltotal, 23, 20);
+			param_check($ltotal, 28, 20);
 			cli_create_data_module(1);
 		}
+		elsif ($param eq '--create_policy_web_module') {
+			param_check($ltotal, 37, 33);
+			cli_create_web_module(1);
+		}
 		elsif ($param eq '--create_policy_network_module') {
-			param_check($ltotal, 23, 20);
+			param_check($ltotal, 30, 20);
 			cli_create_network_module(1);
 		}
 		elsif ($param eq '--create_policy_snmp_module') {
-			param_check($ltotal, 32, 27);
+			param_check($ltotal, 39, 27);
 			cli_create_snmp_module(1);
 		}
 		elsif ($param eq '--create_policy_plugin_module') {
-			param_check($ltotal, 27, 19);
+			param_check($ltotal, 33, 19);
 			cli_create_plugin_module(1);
 		}
 		elsif ($param eq '--create_alert_template') {
@@ -4692,8 +6220,24 @@ sub pandora_manage_main ($$$) {
 			cli_create_alert_template();
 		}
 		elsif ($param eq '--delete_alert_template') {
-			param_check($ltotal, 1);
+			param_check($ltotal, 7);
 			cli_delete_alert_template();
+		}
+		elsif ($param eq '--create_alert_command') {
+			param_check($ltotal, 7, 2);
+			cli_create_alert_command();
+		}
+		elsif ($param eq '--get_alert_commands') {
+			param_check($ltotal, 5, 5);
+			cli_get_alert_commands();
+		}
+		elsif ($param eq '--get_alert_actions') {
+			param_check($ltotal, 3, 3);
+			cli_get_alert_actions();
+		}
+		elsif ($param eq '--get_alert_actions_meta') {
+			param_check($ltotal, 4, 4);
+			cli_get_alert_actions_meta();
 		}
 		elsif ($param eq '--update_alert_template') {
 			param_check($ltotal, 3);
@@ -4773,6 +6317,10 @@ sub pandora_manage_main ($$$) {
 			param_check($ltotal, 2);
 			cli_create_network_module_from_component();
 		}
+		elsif ($param eq '--create_network_component') {
+			param_check($ltotal, 24, 21);
+			cli_create_network_component();
+		}
 		elsif ($param eq '--create_netflow_filter') {
 			param_check($ltotal, 5);
 			cli_create_netflow_filter();
@@ -4842,7 +6390,7 @@ sub pandora_manage_main ($$$) {
 			cli_add_tag_to_module();
 		} 
 		elsif ($param eq '--create_downtime') {
-			param_check($ltotal, 19);
+			param_check($ltotal, 20);
 			cli_create_planned_downtime();
 		}
 		elsif ($param eq '--add_item_downtime') {
@@ -4868,7 +6416,79 @@ sub pandora_manage_main ($$$) {
 		elsif ($param eq '--locate_agent') {
 			param_check($ltotal, 1);
 			cli_locate_agent();
-		} 
+		}
+		elsif ($param eq '--create_visual_console') {
+			param_check($ltotal, 9, 3);
+			cli_create_visual_console();
+		}
+		elsif ($param eq '--edit_visual_console') {
+			param_check($ltotal, 10, 9);
+			cli_edit_visual_console();
+		}
+		elsif ($param eq '--delete_visual_console') {
+			param_check($ltotal, 1);
+			cli_delete_visual_console();
+		}
+		elsif ($param eq '--delete_visual_console_objects') {
+			param_check($ltotal, 3);
+			cli_delete_visual_console_objects();
+		}
+		elsif ($param eq '--duplicate_visual_console') {
+			param_check($ltotal, 3, 2);
+			cli_duplicate_visual_console();
+		}
+		elsif ($param eq '--export_json_visual_console') {
+			param_check($ltotal, 3, 2);
+			cli_export_visual_console();
+		}
+		elsif ($param eq '--apply_module_template') {
+			param_check($ltotal, 2, 2);
+			cli_apply_module_template();
+		}
+		elsif ($param eq '--new_cluster') {
+			param_check($ltotal, 4, 0);
+			cli_new_cluster();
+		}
+		elsif ($param eq '--add_cluster_agent') {
+			param_check($ltotal, 1, 0);
+			cli_add_cluster_agent();
+		}
+		elsif ($param eq '--add_cluster_item') {
+			param_check($ltotal, 1, 0);
+			cli_add_cluster_item();
+		}
+		elsif ($param eq '--delete_cluster') {
+			param_check($ltotal, 1, 0);
+			cli_delete_cluster();
+		}
+		elsif ($param eq '--delete_cluster_agent') {
+			param_check($ltotal, 2, 0);
+			cli_delete_cluster_agent();
+		}
+		elsif ($param eq '--delete_cluster_item') {
+			param_check($ltotal, 1, 0);
+			cli_delete_cluster_item();
+		}
+		elsif ($param eq '--get_cluster_status') {
+			param_check($ltotal, 1, 0);
+			cli_cluster_status();
+		}
+		elsif ($param eq '--migration_agent_queue') {
+			param_check($ltotal, 4, 1);
+			cli_migration_agent_queue();
+		}
+		elsif ($param eq '--migration_agent') {
+			param_check($ltotal, 1, 0);
+			cli_migration_agent();
+		}
+		elsif ($param eq '--set_disabled_and_standby') {
+			param_check($ltotal, 3, 1);
+			cli_set_disabled_and_standby();
+		}
+		elsif ($param eq '--reset_agent_counts') {
+			param_check($ltotal, 1, 0);
+			cli_reset_agent_counts();
+		}
 		else {
 			print_log "[ERROR] Invalid option '$param'.\n\n";
 			$param = '';
@@ -5035,7 +6655,6 @@ sub cli_create_data_module_from_local_component() {
 	#~ pandora_create_module_from_local_component ($conf, $component, $agent_id, $dbh);
 	enterprise_hook('pandora_create_module_from_local_component',[$conf, $component, $agent_id, $dbh]);
 }
-
 ##############################################################################
 # Create policy data module from local component.
 # Related option: --create_policy_data_module_from_local_component
@@ -5196,4 +6815,294 @@ sub cli_add_tag_to_module() {
 	# Call the API.
 	my $result = api_call(\%conf, 'set', 'add_tag_module', $module_id, $tag_id);
 	print "\n$result\n";
+}
+
+##############################################################################
+# Only meta migrate agent
+##############################################################################
+sub cli_migration_agent_queue() {
+	my ($id_agent, $source_name, $target_name, $only_db) = @ARGV[2..5];
+
+	if( !defined($id_agent) || !defined($source_name) || !defined($target_name) ){
+		print "\n0\n";
+	}
+
+	if(!defined($only_db)){
+		$only_db = 0;
+	}
+
+	# Call the API.
+	my $result = api_call( $conf, 'set', 'migrate_agent', $id_agent, 0, "$source_name|$target_name|$only_db" );
+	print "\n$result\n";
+}
+
+##############################################################################
+# Only meta is migrate agent
+##############################################################################
+sub cli_migration_agent() {
+	my ($id_agent) = @ARGV[2];
+
+	if( !defined($id_agent) ){
+		print "\n0\n";
+	}
+
+	# Call the API.
+	my $result = api_call( $conf, 'get', 'migrate_agent', $id_agent);
+
+	if( defined($result) && "$result" ne "" ){
+		print "\n1\n";
+	}
+	else{
+		print "\n0\n";
+	}
+}
+
+sub cli_apply_module_template() {
+	my ($id_template, $id_agent) = @ARGV[2..3];
+	
+	my @row = get_db_rows ($dbh,"select * from tagente where id_agente = ".$id_agent);
+	
+	return if (scalar (@row) == 0);
+	
+	my $name_template = get_db_value ($dbh,'select name from tnetwork_profile where id_np = '.$id_template);
+	
+	my @npc = get_db_rows($dbh,"select * from tnetwork_profile_component where id_np = ".$id_template);
+		
+	foreach my $component (@npc) {
+		
+		my @template_values = get_db_rows ($dbh,"SELECT * FROM tnetwork_component where id_nc = ".$component->{'id_nc'});
+		
+		return if (scalar (@template_values) == 0);
+		
+		foreach my $element (@template_values) {
+			my $agent_values;
+			$agent_values->{'id_agente'} = $id_agent;
+			$agent_values->{'id_tipo_modulo'} = $element->{"type"};
+			$agent_values->{'descripcion'} = 'Created by template '.$name_template.' '.$element->{"description"};
+			$agent_values->{'max'} = $element->{"max"};
+			$agent_values->{'min'} = $element->{"min"};
+			$agent_values->{'module_interval'} = $element->{"module_interval"};
+			$agent_values->{'tcp_port'} = $element->{"tcp_port"};
+			$agent_values->{'tcp_send'} = $element->{"tcp_send"};
+			$agent_values->{'tcp_rcv'} = $element->{"tcp_rcv"};
+			$agent_values->{'snmp_community'} = $element->{"snmp_community"};
+			$agent_values->{'snmp_oid'} = $element->{"snmp_oid"};
+			$agent_values->{'ip_target'} = $row[0]->{"direccion"};
+			$agent_values->{'id_module_group'} = $element->{"id_module_group"};
+			$agent_values->{'id_modulo'} = $element->{"id_modulo"};
+			$agent_values->{'plugin_user'} = $element->{"plugin_user"};
+			$agent_values->{'plugin_pass'} = $element->{"plugin_pass"};
+			$agent_values->{'plugin_parameter'} = $element->{"plugin_parameter"};
+			$agent_values->{'unit'} = $element->{"unit"};
+			$agent_values->{'max_timeout'} = $element->{"max_timeout"};
+			$agent_values->{'max_retries'} = $element->{"max_retries"};
+			$agent_values->{'id_plugin'} = $element->{"id_plugin"};
+			$agent_values->{'post_process'} = $element->{"post_process"};
+			$agent_values->{'dynamic_interval'} = $element->{"dynamic_interval"};
+			$agent_values->{'dynamic_max'} = $element->{"dynamic_max"};
+			$agent_values->{'dynamic_min'} = $element->{"dynamic_min"};
+			$agent_values->{'dynamic_two_tailed'} = $element->{"dynamic_two_tailed"};
+			$agent_values->{'min_warning'} = $element->{"min_warning"};
+			$agent_values->{'max_warning'} = $element->{"max_warning"};
+			$agent_values->{'str_warning'} = $element->{"str_warning"};
+			$agent_values->{'min_critical'} = $element->{"min_critical"};
+			$agent_values->{'max_critical'} = $element->{"max_critical"};
+			$agent_values->{'str_critical'} = $element->{"str_critical"};
+			$agent_values->{'critical_inverse'} = $element->{"critical_inverse"};
+			$agent_values->{'warning_inverse'} = $element->{"warning_inverse"};
+			$agent_values->{'critical_instructions'} = $element->{"critical_instructions"};
+			$agent_values->{'warning_instructions'} = $element->{"warning_instructions"};
+			$agent_values->{'unknown_instructions'} = $element->{"unknown_instructions"};
+			$agent_values->{'id_category'} = $element->{"id_category"};
+			$agent_values->{'macros'} = $element->{"macros"};
+			$agent_values->{'each_ff'} = $element->{"each_ff"};
+			$agent_values->{'min_ff_event'} = $element->{"min_ff_event"};
+			$agent_values->{'min_ff_event_normal'} = $element->{"min_ff_event_normal"};
+			$agent_values->{'min_ff_event_warning'} = $element->{"min_ff_event_warning"};
+			$agent_values->{'min_ff_event_critical'} = $element->{"min_ff_event_critical"};
+			$agent_values->{'nombre'} = $element->{"name"};
+						
+			my @tags;
+			if($element->{"tags"} ne '') {
+				@tags = split(',', $element->{"tags"});
+			}
+			
+			my $module_name_check = get_db_value ($dbh,'select id_agente_modulo from tagente_modulo where delete_pending = 0 and nombre ="'.$agent_values->{'nombre'}.'" and id_agente = '.$id_agent);
+				
+			if (!defined($module_name_check)) {
+				
+				my $id_agente_modulo = pandora_create_module_from_hash(\%conf,$agent_values,$dbh);
+				 
+				if ($id_agente_modulo != -1) {
+					
+					foreach my $tag_name (@tags) {
+						
+						my $tag_id = get_db_value($dbh,'select id_tag from ttag where name = "'.$tag_name.'"');
+							
+						db_do($dbh,'insert into ttag_module (id_tag,id_agente_modulo) values ("'.$tag_id.'","'.$id_agente_modulo.'")');
+					
+					}
+				}
+			}
+		}
+	}
+}
+
+##############################################################################
+# Create an cluster.
+# Related option: --new_cluster
+##############################################################################
+sub cli_new_cluster() {
+	my ($cluster_name,$cluster_type,$description,$group_id) = @ARGV[2..5];
+	
+	# Call the API.
+	my $result = api_call( $conf, 'set', 'new_cluster', undef, undef, "$cluster_name|$cluster_type|$description|$group_id");
+	
+	if( defined($result) && "$result" ne "" ){
+		print "\n1\n";
+	}
+	else{
+		print "\n0\n";
+	}
+}
+
+##############################################################################
+# Assign an agent to cluster.
+# Related option: --add_cluster_agent
+##############################################################################
+sub cli_add_cluster_agent() {
+	my ($other) = @ARGV[2..2];
+	
+	# Call the API.
+	my $result = api_call( $conf, 'set', 'add_cluster_agent', undef, undef, $other);
+	
+	if( defined($result) && "$result" ne "" ){
+		print "\n1\n";
+	}
+	else{
+		print "\n0\n";
+	}
+}
+
+##############################################################################
+# Add item to cluster.
+# Related option: --add_cluster_item
+##############################################################################
+sub cli_add_cluster_item() {
+	my ($other) = @ARGV[2..2];
+	
+	# Call the API.
+	my $result = api_call( $conf, 'set', 'add_cluster_item', undef, undef, $other);
+	
+	if( defined($result) && "$result" ne "" ){
+		print "\n1\n";
+	}
+	else{
+		print "\n0\n";
+	}
+}
+
+##############################################################################
+# Delete cluster.
+# Related option: --delete_cluster
+##############################################################################
+sub cli_delete_cluster() {
+	my ($id) = @ARGV[2..2];
+	
+	# Call the API.
+	my $result = api_call( $conf, 'set', 'delete_cluster', $id);
+	
+	if( defined($result) && "$result" ne "" ){
+		print "\n1\n";
+	}
+	else{
+		print "\n0\n";
+	}
+}
+
+##############################################################################
+# Delete cluster item.
+# Related option: --delete_cluster_item
+##############################################################################
+sub cli_delete_cluster_agent() {
+	my ($id_agent,$id_cluster) = @ARGV[2..3];
+	
+	# Call the API.
+	my $result = api_call( $conf, 'set', 'delete_cluster_agent', undef, undef, "$id_agent|$id_cluster");
+	
+	if( defined($result) && "$result" ne "" ){
+		print "\n1\n";
+	}
+	else{
+		print "\n0\n";
+	}
+}
+
+##############################################################################
+# Delete cluster item.
+# Related option: --delete_cluster_item
+##############################################################################
+sub cli_delete_cluster_item() {
+	my ($id) = @ARGV[2..2];
+	
+	# Call the API.
+	my $result = api_call( $conf, 'set', 'delete_cluster_item', $id);
+	
+	if( defined($result) && "$result" ne "" ){
+		print "\n1\n";
+	}
+	else{
+		print "\n0\n";
+	}
+}
+
+##############################################################################
+# get cluster status.
+# Related option: --get_cluster_status
+##############################################################################
+
+sub cli_get_cluster_status() {
+	my ($id) = @ARGV[2..2];
+	
+	# Call the API.
+	my $result = api_call( $conf, 'get', 'cluster_status', $id);
+	
+	if( defined($result) && "$result" ne "" ){
+		print "\n1\n";
+	}
+	else{
+		print "\n0\n";
+	}
+}
+
+##############################################################################
+# Set an agent disabled and with standby.
+# Related option: --set_disabled_and_standby
+##############################################################################
+
+sub cli_set_disabled_and_standby() {
+	my ($id, $id_node, $value) = @ARGV[2..4];
+	$id_node = 0 unless defined($id_node);
+	$value = 1 unless defined($value); #Set to disabled by default
+
+	# Call the API.
+	my $result = api_call(
+		$conf, 'set', 'disabled_and_standby', $id, $id_node, $value
+	);
+
+	my $exit_code =  (defined($result) && "$result" eq "1") ? "1" : "0";
+	print "\n$exit_code\n";
+}
+
+##############################################################################
+# Resets module counts and alert counts in the agents.
+# Related option: --reset_agent_counts
+##############################################################################
+
+sub cli_reset_agent_counts() {
+	my $agent_id = @ARGV[2];
+
+	my $result = api_call(\%conf,'set', 'reset_agent_counts', $agent_id);
+	print "$result \n\n ";
+
 }

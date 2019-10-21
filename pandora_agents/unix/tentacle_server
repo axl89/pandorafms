@@ -60,6 +60,8 @@ use strict;
 use warnings;
 use Getopt::Std;
 use IO::Select;
+use IO::Compress::Zip qw(zip $ZipError);
+use IO::Uncompress::Unzip qw(unzip $UnzipError);
 use threads;
 use Thread::Semaphore;
 use POSIX ":sys_wait_h";
@@ -102,7 +104,7 @@ my $SERVICE_NAME="Tentacle Server";
 my $SERVICE_PARAMS=join(' ', @ARGV);
 
 # Program version
-our $VERSION = '0.6.1';
+our $VERSION = '0.6.2';
 
 # IPv4 address to listen on
 my @t_addresses = ('0', '0.0.0.0');
@@ -121,6 +123,9 @@ my $t_directory = '';
 
 # Filters
 my @t_filters;
+
+# Enable (1) or disable (0) insecure mode
+my $t_insecure = 0;
 
 # String containing quoted invalid file name characters
 my $t_invalid_chars = '\?\[\]\/\\\=\+\<\>\:\;\'\,\*\~';
@@ -214,7 +219,9 @@ sub print_help {
 	print ("\t-d\t\tRun as daemon.\n");
 	print ("\t-e cert\t\tOpenSSL certificate file. Enables SSL.\n");
 	print ("\t-f ca_cert\tVerify that the peer certificate is signed by a ca.\n");
+	print ("\t-F config_file\tConfiguration file full path.\n");
 	print ("\t-h\t\tShow help.\n");
+	print ("\t-I\t\tEnable insecure operations (file listing and moving).\n");
 	print ("\t-i\t\tFilters.\n");
 	print ("\t-k key\t\tOpenSSL private key file.\n");
 	print ("\t-l log_file\t\tFile to write logs.\n");
@@ -274,11 +281,13 @@ sub daemonize {
 ################################################################################
 sub parse_options {
 	my %opts;
+	my $CONF = {};
+	my $token_value;
 	my $tmp;
 	my @t_addresses_tmp;
 
 	# Get options
-	if (getopts ('a:b:c:de:f:g:hi:k:l:m:op:qr:s:S:t:TvVwx:', \%opts) == 0 || defined ($opts{'h'})) {
+	if (getopts ('a:b:c:de:f:F:g:hIi:k:l:m:op:qr:s:S:t:TvVwx:', \%opts) == 0 || defined ($opts{'h'})) {
 		print_help ();
 		exit 1;
 	}
@@ -300,10 +309,16 @@ sub parse_options {
 		}
 	}
 
+	# Configuration file
+	if (defined($opts{'F'})) {
+		parse_config_file($opts{'F'}, $CONF);
+	}
+
 	# Address
-	if (defined ($opts{'a'})) {
+	$token_value = get_config_value($opts{'a'}, $CONF->{'addresses'});
+	if (defined ($token_value)) {
 		@t_addresses = ();
-		@t_addresses_tmp = split(/,/, $opts{'a'});
+		@t_addresses_tmp = split(/,/, $token_value);
 		
 		foreach my $t_address (@t_addresses_tmp) {
 			$t_address =~ s/^ *(.*?) *$/$1/;
@@ -319,15 +334,17 @@ sub parse_options {
 	}
 	
 	# Maximum simultaneous connections
-	if (defined ($opts{'c'})) {
-		$t_max_conn = $opts{'c'};
+	$token_value = get_config_value($opts{'c'}, $CONF->{'max_connections'});
+	if (defined ($token_value)) {
+		$t_max_conn = $token_value;
 		if ($t_max_conn !~ /^\d+$/ || $t_max_conn < 1) {
 			error ("Invalid number of maximum simultaneous connections.");
 		}
 	}
 
 	# Run as daemon
-	if (defined ($opts{'d'})) {
+	$token_value = get_config_value($opts{'d'}, $CONF->{'daemon'}, 1);
+	if (defined ($token_value)) {
 		if ($^ eq 'MSWin32') {
 			error ("-d flag not available for this OS.");
 		}
@@ -336,11 +353,12 @@ sub parse_options {
 	}
 
 	# Enable SSL
-	if (defined ($opts{'e'})) {
+	$token_value = get_config_value($opts{'e'}, $CONF->{'ssl_cert'});
+	if (defined ($token_value)) {
 
 		require IO::Socket::SSL;
 
-		$t_ssl_cert = $opts{'e'};
+		$t_ssl_cert = $token_value;
 		if (! -f $t_ssl_cert) {
 			error ("File $t_ssl_cert does not exist.");
 		}
@@ -349,16 +367,24 @@ sub parse_options {
 	}
 
 	# Verify peer certificate
-	if (defined ($opts{'f'})) {
-		$t_ssl_ca = $opts{'f'};
+	$token_value = get_config_value($opts{'f'}, $CONF->{'ssl_ca'});
+	if (defined ($token_value)) {
+		$t_ssl_ca = $token_value;
 		if (! -f $t_ssl_ca) {
 			error ("File $t_ssl_ca does not exist.");
 		}
 	}
 
+	# Insecure mode
+	$token_value = get_config_value($opts{'I'}, $CONF->{'insecure'}, 1);
+	if (defined ($token_value)) {
+		$t_insecure = 1;
+	}
+
 	# Filters (regexp:dir;regexp:dir...)
-	if (defined ($opts{'i'})) {
-		my @filters = split (';', $opts{'i'});
+	$token_value = get_config_value($opts{'i'}, $CONF->{'filters'});
+	if (defined ($token_value)) {
+		my @filters = split (';', $token_value);
 		foreach my $filter (@filters) {
 			my ($regexp, $dir) = split (':', $filter);
 			next unless defined ($regexp) && defined ($dir);
@@ -372,51 +398,58 @@ sub parse_options {
 	}
 
 	# SSL private key file
-	if (defined ($opts{'k'})) {
-		$t_ssl_key = $opts{'k'};
+	$token_value = get_config_value($opts{'k'}, $CONF->{'ssl_key'});
+	if (defined ($token_value)) {
+		$t_ssl_key = $token_value;
 		if (! -f $t_ssl_key) {
 			error ("File $t_ssl_key does not exist.");
 		}
 	}
 
 	# Maximum file size
-	if (defined ($opts{'m'})) {
-		$t_max_size = $opts{'m'};
+	$token_value = get_config_value($opts{'m'}, $CONF->{'max_size'});
+	if (defined ($token_value)) {
+		$t_max_size = $token_value;
 		if ($t_max_size !~ /^\d+$/ || $t_max_size < 1) {
 			error ("Invalid maximum file size.");
 		}
 	}
 
 	# File overwrite
-	if (defined ($opts{'o'})) {
+	$token_value = get_config_value($opts{'o'}, $CONF->{'overwrite'}, 1);
+	if (defined ($token_value)) {
 		$t_overwrite = 1;
 	}
 
 	# Port
-	if (defined ($opts{'p'})) {
-		$t_port = $opts{'p'};
+	$token_value = get_config_value($opts{'p'}, $CONF->{'port'});
+	if (defined ($token_value)) {
+		$t_port = $token_value;
 		if ($t_port !~ /^\d+$/ || $t_port < 1 || $t_port > 65535) {
 			error ("Port $t_port is not valid.");
 		}
 	}
 
 	# Quiet mode
-	if (defined ($opts{'q'})) {
+	$token_value = get_config_value($opts{'q'}, $CONF->{'quiet'}, 1);
+	if (defined ($token_value)) {
 		$t_quiet = 1;
 	}
 
 	# Retries
-	if (defined ($opts{'r'})) {
-		$t_retries = $opts{'r'};
+	$token_value = get_config_value($opts{'r'}, $CONF->{'retries'});
+	if (defined ($token_value)) {
+		$t_retries = $token_value;
 		if ($t_retries !~ /^\d+$/ || $t_retries < 1) {
 			error ("Invalid number of retries for network operations.");
 		}
 	}
 
 	# Storage directory
-	if (defined ($opts{'s'})) {
+	$token_value = get_config_value($opts{'s'}, $CONF->{'directory'});
+	if (defined ($token_value)) {
 
-		$t_directory = $opts{'s'};
+		$t_directory = $token_value;
 		
 		# Check that directory exists
 		if (! -d $t_directory) {
@@ -435,25 +468,36 @@ sub parse_options {
 		}
 	}
 	else {
-		if (! defined($opts{'b'})) {
+		$token_value = get_config_value($opts{'b'}, $CONF->{'proxy_ip'});
+		if (! defined($token_value)) {
 			print_help ();
 			exit 1;
 		}
 	}
 
 	# Timeout
-	if (defined ($opts{'t'})) {
-		$t_timeout = $opts{'t'};
+	$token_value = get_config_value($opts{'t'}, $CONF->{'timeout'});
+	if (defined ($token_value)) {
+		$t_timeout = $token_value;
 		if ($t_timeout !~ /^\d+$/ || $t_timeout < 1) {
 			error ("Invalid timeout for network operations.");
 		}
 	}
 
+	# Read verbose from config file
+	if (defined($CONF->{'verbose'})) {
+		if ($CONF->{'verbose'} eq "1") {
+			$t_log = 1;
+		} elsif ($CONF->{'verbose'} eq "2") {
+			$t_log = 1;
+			$t_log_hard = 1;
+		}
+	}
 	# Be verbose
 	if (defined ($opts{'v'})) {
 		$t_log = 1;
+		$t_log_hard = 0;
 	}
-
 	# Be verbose hard
 	if (defined ($opts{'V'})) {
 		$t_log = 1;
@@ -461,18 +505,21 @@ sub parse_options {
 	}
 
 	# SSL private key password
-	if (defined ($opts{'w'})) {
+	$token_value = get_config_value($opts{'w'}, $CONF->{'ssl_password'}, 1);
+	if (defined ($token_value)) {
 		$t_ssl_pwd = ask_passwd ("Enter private key file password: ", "Enter private key file password again for confirmation: ");
 	}
 
 	# Server password
-	if (defined ($opts{'x'})) {
-		$t_pwd = $opts{'x'};
+	$token_value = get_config_value($opts{'x'}, $CONF->{'password'});
+	if (defined ($token_value)) {
+		$t_pwd = $token_value;
 	}
 	
 	#Proxy IP address
-	if (defined ($opts{'b'})) {
-		$t_proxy_ip = $opts{'b'};
+	$token_value = get_config_value($opts{'b'}, $CONF->{'proxy_ip'});
+	if (defined ($token_value)) {
+		$t_proxy_ip = $token_value;
 		if ($t_proxy_ip !~ /^[a-zA-Z\.]+$/ && ($t_proxy_ip  !~ /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/
 			|| $1 < 0 || $1 > 255 || $2 < 0 || $2 > 255
 			|| $3 < 0 || $3 > 255 || $4 < 0 || $4 > 255) &&
@@ -482,15 +529,17 @@ sub parse_options {
 	}
 	
 	# Proxy Port
-	if (defined ($opts{'g'})) {
-		$t_proxy_port = $opts{'g'};
+	$token_value = get_config_value($opts{'g'}, $CONF->{'proxy_port'});
+	if (defined ($token_value)) {
+		$t_proxy_port = $token_value;
 		if ($t_proxy_port !~ /^\d+$/ || $t_proxy_port < 1 || $t_proxy_port > 65535) {
 			error ("Proxy port $t_port is not valid.");
 		}
 	}	
 
 	# TCP wrappers support
-	if (defined ($opts{'T'})) {
+	$token_value = get_config_value($opts{'T'}, $CONF->{'use_libwrap'}, 1);
+	if (defined ($token_value)) {
 		if ($t_libwrap_installed) {
 			$t_use_libwrap = 1;
 		} else {
@@ -522,9 +571,76 @@ sub parse_options {
 	}
 	
 	# Get the config file
-	if (defined ($opts{'l'})) {
-		$log_file = $opts{'l'};
+	$token_value = get_config_value($opts{'l'}, $CONF->{'log_file'});
+	if (defined ($token_value)) {
+		$log_file = $token_value;
 	}
+
+	# No command lines config values
+
+	# Get the block size
+	if (defined ($CONF->{'block_size'})) {
+		if ($t_port !~ /^\d+$/ || $t_port < 1) {
+			error ("Invalid block size: " . $CONF->{'block_size'} . ".");
+		}
+		$t_block_size = $CONF->{'block_size'};
+	}
+
+	# Configuration file invalid chars
+	if (defined ($CONF->{'invalid_chars'})) {
+		$t_invalid_chars = $CONF->{'invalid_chars'};
+	}
+}
+
+################################################################################
+## SUB parse_config_file
+## Get all options from a config file.
+################################################################################
+sub parse_config_file {
+	my ($config_file, $CONF) = @_;
+
+	# File should be writable
+	if (! -r $config_file) {
+		print "Configuration file $config_file is not readable.\n";
+		return;
+	}
+
+	# Open the file
+	my $FH;
+	if (! open ($FH, "< $config_file")) {
+		print "Cannot open configuration file $config_file.\n";
+		return;
+	}
+
+	# Read the file and only get the well formed lines
+	while (<$FH>) {
+		my $buffer_line = $_;
+		if ($buffer_line =~ /^[a-zA-Z]/){ # begins with letters
+			if ($buffer_line =~ m/([\w\-\_\.]+)\s+(.*)/){
+				$CONF->{$1} = $2 unless $2 eq "";
+			}
+		}
+	}
+
+ 	close ($FH);
+	return;
+}
+
+################################################################################
+## SUB parse_config_file
+## Search in command line options and config hash from configuration file
+## to get a value (command line is a priority)
+################################################################################
+sub get_config_value {
+	my ($cmd_value, $conf_value, $bool) = @_;
+	$bool = 0 unless defined($bool);
+
+	return $cmd_value if defined($cmd_value);
+	# The boolean type value is 1 or undef (0 should be translated like undefP)
+	if ($bool && defined($conf_value)) {
+		return undef if ($conf_value ne "1");
+	}
+	return $conf_value;
 }
 
 ################################################################################
@@ -598,6 +714,7 @@ sub start_server {
 ################################################################################
 sub send_data_proxy {
 	my $data = $_[0];
+	my $block_size;
 	my $retries = 0;
 	my $size;
 	my $total = 0;
@@ -610,6 +727,7 @@ sub send_data_proxy {
 		# Try to write data to the socket
 		if ($t_proxy_select->can_write ($t_timeout)) {
 
+			$block_size = ($size - $total) > $t_block_size ? $t_block_size : ($size - $total);
 			$written = syswrite ($t_proxy_socket, $data, $size - $total, $total);
 
 			# Write error
@@ -622,21 +740,19 @@ sub send_data_proxy {
 				error ("Connection from " . $t_proxy_socket->sockhost () . " unexpectedly closed.");
 			}
 	
+			$total += $written;
+
+			# Check if all data was written
+			if ($total == $size) {
+				return;
+			}
 		}
-
-		$total += $written;
-
-		# Check if all data was written
-		if ($total == $size) {
-			return;
-		}
-
 		# Retry
-		$retries++;
-
-		# But check for error conditions first
-		if ($retries > $t_retries) {
-			error ("Connection from " . $t_proxy_socket->sockhost () . " timed out.");
+		else {
+			$retries++;
+			if ($retries > $t_retries) {
+				error ("Connection from " . $t_proxy_socket->sockhost () . " timed out.");
+			}
 		}
 	}
 }
@@ -845,10 +961,39 @@ sub serve_connection {
 			print_info ("Request to receive file '$1' from " . $t_client_socket->sockhost ());
 			send_file ($1);
 		}
+		elsif ($command =~ /^ZSEND <(.*)> SIZE (\d+)$/) {
+			print_info ("Request to send compressed file '$1' size ${2}b from " . $t_client_socket->sockhost ());
+			zrecv_file ($1, $2);
+		}
+		# Client wants to receive a file
+		elsif ($command =~ /^ZRECV <(.*)>$/) {
+			print_info ("Request to receive compressed file '$1' from " . $t_client_socket->sockhost ());
+			zsend_file ($1);
+		}
 		# Quit
 		elsif ($command =~ /^QUIT$/) {
 			print_info ("Connection closed from " . $t_client_socket->sockhost ());
 			last;
+		}
+		# File listing.
+		elsif ($command =~ /^LS <(.*)>$/) {
+			if ($t_insecure == 0) {
+				print_info ("Insecure mode disabled. Rejected request to list files matched by filter $1 from " . $t_client_socket->sockhost ());
+				last;
+			}
+
+			print_info ("Request to list files matched by filter $1 from " . $t_client_socket->sockhost ());
+			send_file_list ($1);
+		}
+		# Client wants to move a file
+		elsif ($command =~ /^MV <(.*)>$/) {
+			if ($t_insecure == 0) {
+				print_info ("Insecure mode disabled. Rejected request to move file $1 from " . $t_client_socket->sockhost ());
+				last;
+			}
+
+			print_info ("Request to move file '$1' from " . $t_client_socket->sockhost ());
+			move_file ($1);
 		}
 		# Unknown command
 		else {
@@ -900,14 +1045,14 @@ sub recv_file {
 	# Check file name
 	if ($base_name =~ /[$t_invalid_chars]/) {
 		print_log ("File '$base_name' size ${size}b from " . $t_client_socket->sockhost () . " has an invalid file name");
-		send_data ("SEND ERR\n");
+		send_data ("SEND ERR (invalid file name)\n");
 		return;
 	}
 
 	# Check file size, empty files are not allowed
 	if ($size < 1 || $size > $t_max_size) {
 		print_log ("File '$base_name' size ${size}b from " . $t_client_socket->sockhost () . " is too big");
-		send_data ("SEND ERR\n");
+		send_data ("SEND ERR (file is too big)\n");
 		return;
 	}
 	
@@ -917,7 +1062,7 @@ sub recv_file {
 	# Check if file exists
 	if (-f $file && $t_overwrite == 0) {
 		print_log ("File '$base_name' size ${size}b from " . $t_client_socket->sockhost () . " already exists");
-		send_data ("SEND ERR\n");
+		send_data ("SEND ERR (file already exists)\n");
 		return;
 	}
 
@@ -937,6 +1082,61 @@ sub recv_file {
 }
 
 ################################################################################
+## SUB zrecv_file
+## Receive a compressed file of size $_[1] and save it in $t_directory as $_[0].
+################################################################################
+sub zrecv_file {
+	my $base_name = $_[0];
+	my $data = '';
+	my $file;
+	my $size = $_[1];
+	my $zdata = '';
+
+	# Check file name
+	if ($base_name =~ /[$t_invalid_chars]/) {
+		print_log ("File '$base_name' size ${size}b from " . $t_client_socket->sockhost () . " has an invalid file name");
+		send_data ("ZSEND ERR (invalid file name)\n");
+		return;
+	}
+
+	# Check file size, empty files are not allowed
+	if ($size < 1 || $size > $t_max_size) {
+		print_log ("File '$base_name' size ${size}b from " . $t_client_socket->sockhost () . " is too big");
+		send_data ("ZSEND ERR (file is too big)\n");
+		return;
+	}
+	
+	# Apply filters
+	$file = "$t_directory/" . apply_filters ($base_name) . $base_name;
+
+	# Check if file exists
+	if (-f $file && $t_overwrite == 0) {
+		print_log ("File '$base_name' size ${size}b from " . $t_client_socket->sockhost () . " already exists");
+		send_data ("ZSEND ERR (file already exists)\n");
+		return;
+	}
+
+	send_data ("ZSEND OK\n");
+
+	# Receive file
+	$zdata = recv_data_block ($size);
+	if (!unzip(\$zdata => \$data)) {
+		print_log ("Uncompress error: $UnzipError");
+		send_data ("ZSEND ERR\n");
+		return;
+	}
+
+	# Write it to disk
+	open (FILE, "> $file") || error ("Cannot open file '$file' for writing.");
+	binmode (FILE);
+	print (FILE $data);
+	close (FILE);
+
+	send_data ("ZSEND OK\n");
+	print_info ("Received compressed file '$base_name' size ${size}b from " . $t_client_socket->sockhost ());
+}
+
+################################################################################
 ## SUB send_file
 ## Send a file to the client
 ################################################################################
@@ -950,7 +1150,7 @@ sub send_file {
 	# Check file name
 	if ($base_name =~ /[$t_invalid_chars]/) {
 		print_log ("Requested file '$base_name' from " . $t_client_socket->sockhost () . " has an invalid file name");
-		send_data ("RECV ERR\n");
+		send_data ("RECV ERR (file has an invalid file name)\n");
 		return;
 	}
 	
@@ -960,7 +1160,7 @@ sub send_file {
 	# Check if file exists
 	if (! -f $file) {
 		print_log ("Requested file '$file' from " . $t_client_socket->sockhost () . " does not exist");
-		send_data ("RECV ERR\n");
+		send_data ("RECV ERR (file does not exist)\n");
 		return;
 	}
 
@@ -977,14 +1177,66 @@ sub send_file {
 	# Send the file
 	open (FILE, $file) || error ("Cannot open file '$file' for reading.");
 	binmode (FILE);
-
-	while ($data = <FILE>) {
-		send_data ($data);
+	{
+		local $/ = undef;
+		$data = <FILE>;
 	}
 
+	send_data ($data);
 	close (FILE);
 
 	print_log ("Requested file '$file' from " . $t_client_socket->sockhost () . " sent");
+}
+
+################################################################################
+## SUB zsend_file
+## Send a file to the client
+################################################################################
+sub zsend_file {
+	my $base_name = $_[0];
+	my $data = '';
+	my $file;
+	my $response;
+	my $size;
+
+	# Check file name
+	if ($base_name =~ /[$t_invalid_chars]/) {
+		print_log ("Requested compressed file '$base_name' from " . $t_client_socket->sockhost () . " has an invalid file name");
+		send_data ("ZRECV ERR (file has an invalid file name)\n");
+		return;
+	}
+	
+	# Apply filters
+	$file = "$t_directory/" . apply_filters ($base_name) . $base_name;
+
+	# Check if file exists
+	if (! -f $file) {
+		print_log ("Requested compressed '$file' from " . $t_client_socket->sockhost () . " does not exist");
+		send_data ("ZRECV ERR (file does not exist)\n");
+		return;
+	}
+
+	# Read the file and compress its contents
+	if (! zip($file => \$data)) {
+		send_data ("QUIT\n");
+		error ("Compression error: $ZipError");
+		return;
+	}
+
+	$size = length($data);
+	send_data ("ZRECV SIZE $size\n");
+	
+	# Wait for client response
+	$response = recv_command ($t_block_size);
+	if ($response ne "ZRECV OK") {
+		print_log ("Requested compressed '$file' from " . $t_client_socket->sockhost () . " not sent");
+		return;
+	}
+
+	# Send the file
+	send_data ($data);
+
+	print_log ("Requested compressed '$file' from " . $t_client_socket->sockhost () . " sent");
 }
 
 ################################################################################
@@ -1053,6 +1305,109 @@ sub error {
 	close ($fh) if (defined($log_file));
 
 	die("\n");
+}
+
+################################################################################
+## SUB move_file
+## Send a file to the client and delete it
+################################################################################
+sub move_file {
+	my $base_name = $_[0];
+	my $data = '';
+	my $file;
+	my $response;
+	my $size;
+
+	# Check file name
+	if ($base_name =~ /[$t_invalid_chars]/) {
+		print_log ("Requested file '$base_name' from " . $t_client_socket->sockhost () . " has an invalid file name");
+		send_data ("MV ERR\n");
+		return;
+	}
+	
+	# Apply filters
+	$file = "$t_directory/" . apply_filters ($base_name) . $base_name;
+
+	# Check if file exists
+	if (! -f $file) {
+		print_log ("Requested file '$file' from " . $t_client_socket->sockhost () . " does not exist");
+		send_data ("MV ERR\n");
+		return;
+	}
+
+	$size = -s $file;
+	send_data ("MV SIZE $size\n");
+	
+	# Wait for client response
+	$response = recv_command ($t_block_size);
+	if ($response ne "MV OK") {
+		print_log ("Requested file '$file' from " . $t_client_socket->sockhost () . " not sent");
+		return;
+	}
+
+	# Send the file
+	open (FILE, $file) || error ("Cannot open file '$file' for reading.");
+	binmode (FILE);
+
+	while ($data = <FILE>) {
+		send_data ($data);
+	}
+
+	close (FILE);
+	unlink($file);
+
+	print_log ("Requested file '$file' from " . $t_client_socket->sockhost () . " sent and deleted");
+}
+
+################################################################################
+## SUB send_file_list
+## Send a list of files to the client after applying the given filter.
+################################################################################
+sub send_file_list {
+	my $filter = $_[0];
+	my $data = '';
+	my $dir;
+	my $dh;
+	my $response;
+	my $size;
+
+	# Check file name
+	if ($filter =~ /[$t_invalid_chars]/) {
+		print_log ("Invalid file listing filter '$filter' from " . $t_client_socket->sockhost ());
+		send_data ("LS ERR\n");
+		return;
+	}
+	
+	# Apply filters
+	$dir = "$t_directory/" . apply_filters ($filter);
+
+	# Open the directory.
+	if (! opendir ($dh, $dir)) {
+		print_log ("Error opening directory $dir as requested from " . $t_client_socket->sockhost () . ": $!");
+		send_data ("LS ERR\n");
+		return;
+	}
+
+	# List files.
+	while (my $file = readdir ($dh)) {
+		next if ($file =~ /[$t_invalid_chars]/); # Only list files valid for Tentacle.
+		$data .= "$file\n";
+	}
+	closedir $dh;
+
+	$size = length ($data);
+	send_data ("LS SIZE $size\n");
+	
+	# Wait for client response
+	$response = recv_command ($t_block_size);
+	if ($response ne "LS OK") {
+		print_log ("Requested directory listing from " . $t_client_socket->sockhost () . " not sent");
+		return;
+	}
+
+	send_data ($data);
+
+	print_log ("Requested directory listing from " . $t_client_socket->sockhost () . " sent");
 }
 
 ################################################################################
@@ -1143,6 +1498,7 @@ sub recv_data {
 ################################################################################
 sub send_data {
 	my $data = $_[0];
+	my $block_size;
 	my $retries = 0;
 	my $size;
 	my $total = 0;
@@ -1155,7 +1511,8 @@ sub send_data {
 		# Try to write data to the socket
 		if ($t_select->can_write ($t_timeout)) {
 
-			$written = syswrite ($t_client_socket, $data, $size - $total, $total);
+			$block_size = ($size - $total) > $t_block_size ? $t_block_size : ($size - $total);
+			$written = syswrite ($t_client_socket, $data, $block_size, $total);
 
 			# Write error
 			if (! defined ($written)) {
@@ -1167,21 +1524,19 @@ sub send_data {
 				error ("Connection from " . $t_client_socket->sockhost () . " unexpectedly closed.");
 			}
 	
+			$total += $written;
+
+			# Check if all data was written
+			if ($total == $size) {
+				return;
+			}
 		}
-
-		$total += $written;
-
-		# Check if all data was written
-		if ($total == $size) {
-			return;
-		}
-
 		# Retry
-		$retries++;
-
-		# But check for error conditions first
-		if ($retries > $t_retries) {
-			error ("Connection from " . $t_client_socket->sockhost () . " timed out.");
+		else {
+			$retries++;
+			if ($retries > $t_retries) {
+				error ("Connection from " . $t_client_socket->sockhost () . " timed out.");
+			}
 		}
 	}
 }

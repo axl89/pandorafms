@@ -78,6 +78,7 @@ Pandora_Module::Pandora_Module (string name) {
 	this->warning_inverse = "";
 	this->quiet = "";
 	this->module_ff_interval = "";
+	this->module_ff_type = "";
 	this->module_alert_template = "";
 	this->module_crontab = "";
 }
@@ -213,6 +214,8 @@ Pandora_Module::parseModuleTypeFromString (string type) {
 		return TYPE_ASYNC_STRING;
 	} else if (type == module_log_str) {
 		return TYPE_LOG;
+	} else if (type == module_generic_data_inc_abs_str) {
+		return TYPE_GENERIC_DATA_INC_ABS;
 	} else {
 		return TYPE_0;
 	}
@@ -246,7 +249,9 @@ Pandora_Module::parseModuleKindFromString (string kind) {
 	} else if (kind == module_inventory_str) {
 		return MODULE_INVENTORY;
 	} else if (kind == module_logevent_str) {
-		return MODULE_LOGEVENT;  
+		return MODULE_LOGEVENT;
+	} else if (kind == module_logchannel_str) {
+		return MODULE_LOGCHANNEL;  
 	} else if (kind == module_wmiquery_str) {
 		return MODULE_WMIQUERY;               
 	} else if (kind == module_perfcounter_str) {
@@ -366,7 +371,7 @@ Pandora_Module::getDataOutput (Pandora_Data *data) {
 	}
 	
 	if (this->has_limits) {
-		if (value >= this->max || value <= this->min) {
+		if (value > this->max || value < this->min) {
 			pandoraLog ("The returned value was not in the interval on module %s",
 				    this->module_name.c_str ());
 			throw Value_Error ();
@@ -528,6 +533,7 @@ Pandora_Module::getXml () {
 				try {
 					data_clean = strreplace (this->getDataOutput (data),
 								 "%", "%%" );
+					data_clean = strreplace (data_clean, "]]>", "]]><![CDATA[");
 				} catch (Module_Exception e) {
 					continue;
 				}
@@ -538,6 +544,7 @@ Pandora_Module::getXml () {
 			data = data_list->front ();
 			try {
 				data_clean = strreplace (this->getDataOutput (data), "%", "%%" );
+				data_clean = strreplace (data_clean, "]]>", "]]><![CDATA[");
 				module_xml += data_clean;
 
 			} catch (Module_Exception e) {
@@ -727,6 +734,13 @@ Pandora_Module::getXml () {
 		module_xml += this->module_ff_interval;
 		module_xml += "</module_ff_interval>\n";
 	}
+
+	/* Module FF type */
+	if (this->module_ff_type != "") {
+		module_xml += "\t<ff_type>";
+		module_xml += this->module_ff_type;
+		module_xml += "</ff_type>\n";
+	}
 	
 	/* Module Alert template */
 	if (this->module_alert_template != "") {
@@ -736,10 +750,14 @@ Pandora_Module::getXml () {
 	}
 	
 	/* Module Crontab */
-	if (this->module_crontab != "") {
+	if (this->cron->getIsSet()) {
 		module_xml += "\t<crontab>";
-		module_xml += this->module_crontab;
+		module_xml += this->cron->getCronString();
 		module_xml += "</crontab>\n";
+
+		module_xml += "\t<cron_interval><![CDATA[";
+		module_xml += this->cron->getCronIntervalStr();
+		module_xml += "]]></cron_interval>\n";
 	}
 
     /* Write module data */
@@ -1016,6 +1034,16 @@ Pandora_Module::setQuiet (string value) {
 void
 Pandora_Module::setModuleFFInterval (string value) {
 	this->module_ff_interval = value;
+}
+
+/** 
+ * Set the module FF type for the module.
+ *
+ * @param value module FF type value to set.
+ */
+void
+Pandora_Module::setModuleFFType (string value) {
+	this->module_ff_type = value;
 }
 
 /** 
@@ -1394,48 +1422,48 @@ Pandora_Module::evaluatePreconditions () {
 							buffer[read] = '\0';
 							output += (char *) buffer;
 					}
-				
-				try {
-					double_output = Pandora_Strutils::strtodouble (output);
-				} catch (Pandora_Strutils::Invalid_Conversion e) {
-					double_output = 0;
+
+					try {
+						double_output = Pandora_Strutils::strtodouble (output);
+					} catch (Pandora_Strutils::Invalid_Conversion e) {
+						double_output = 0;
+					}
+		
+					if (dwRet == WAIT_OBJECT_0) { 
+						break;
+					} else if(this->getTimeout() < GetTickCount() - tickbase) {
+						/* STILL_ACTIVE */
+						TerminateProcess(pi.hThread, STILL_ACTIVE);
+						pandoraLog ("evaluatePreconditions: %s timed out (retcode: %d)", this->module_name.c_str (), STILL_ACTIVE);
+						break;
+					}
 				}
 	
-				if (dwRet == WAIT_OBJECT_0) { 
-					break;
-				} else if(this->getTimeout() < GetTickCount() - tickbase) {
-					/* STILL_ACTIVE */
-					TerminateProcess(pi.hThread, STILL_ACTIVE);
-					pandoraLog ("evaluatePreconditions: %s timed out (retcode: %d)", this->module_name.c_str (), STILL_ACTIVE);
-					break;
+				GetExitCodeProcess (pi.hProcess, &retval);
+		
+				if (retval != 0) {
+					if (! TerminateJobObject (job, 0)) {
+						pandoraLog ("evaluatePreconditions: TerminateJobObject failed. (error %d)",
+						GetLastError ());
+					}
+					if (retval != STILL_ACTIVE) {
+						pandoraLog ("evaluatePreconditions: %s did not executed well (retcode: %d)",
+						this->module_name.c_str (), retval);
+					}
+					/* Close job, process and thread handles. */
+					CloseHandle (job);
+					CloseHandle (pi.hProcess);
+					CloseHandle (pi.hThread);
+					CloseHandle (new_stdout);
+					CloseHandle (out_read);
+					return 0;
 				}
-			}
-	
-			GetExitCodeProcess (pi.hProcess, &retval);
-	
-			if (retval != 0) {
-				if (! TerminateJobObject (job, 0)) {
-					pandoraLog ("evaluatePreconditions: TerminateJobObject failed. (error %d)",
-					GetLastError ());
-				}
-	            if (retval != STILL_ACTIVE) {
-					pandoraLog ("evaluatePreconditions: %s did not executed well (retcode: %d)",
-	                this->module_name.c_str (), retval);
-	            }
+			
 				/* Close job, process and thread handles. */
 				CloseHandle (job);
 				CloseHandle (pi.hProcess);
 				CloseHandle (pi.hThread);
-				CloseHandle (new_stdout);
-				CloseHandle (out_read);
-				return 0;
 			}
-		
-			/* Close job, process and thread handles. */
-			CloseHandle (job);
-			CloseHandle (pi.hProcess);
-			CloseHandle (pi.hThread);
-		}
 
 			CloseHandle (new_stdout);
 			CloseHandle (out_read);
@@ -1561,156 +1589,29 @@ Pandora_Module::evaluateIntensiveConditions () {
  * 
  * @return 1 if the module should run, 0 if not.
  */
-int
-Pandora_Module::checkCron (int module_interval, int agent_interval) {
-	int i, time_params[5];
-	time_t current_time, offset;
-	struct tm *time_struct;
-	Cron *cron = this->cron;
+bool
+Pandora_Module::checkCron (int interval) {
 
-	// No cron
-	if (cron == NULL) {
-		return 1;
-	}
+	// Execute always if cron is not configured
+	if (!this->cron->getIsSet()) return true;
 
-	// Get current time
-	current_time = time (NULL);
+	time_t now = time(NULL);
+	if (!this->cron->shouldExecuteAt(now)) return false;
 
-	// Check if the module was already executed
-	if (current_time <= cron->utimestamp) {
-		return 0;
-	}
-
-	// Break current time
-	time_struct = localtime(&current_time);
-	if (time_struct == NULL) {
-		return 1;
-	}
-
-	time_params[0] = time_struct->tm_min;
-	time_params[1] = time_struct->tm_hour;
-	time_params[2] = time_struct->tm_mday;
-	time_params[3] = time_struct->tm_mon;
-	time_params[4] = time_struct->tm_wday;
+	// Check if should execute this module at first before update cron params
+	bool execute = this->cron->shouldExecuteAtFirst(now);
 	
-	// Fix month (localtime retuns 0..11 and we need 1..12)
-	time_params[3] += 1;
-	
-	// Check cron parameters	
-	for (i = 0; i < 5; i++) {
-		
-		// Wildcard
-		if (cron->params[i][0] < 0) {
-			continue;
-		}
-		
-		// Check if next execution will overflow the cron (only minutes overflow)
-		// If overflow, execute the module
-		bool overflow_cron = false;
-		if (i == 0) {
-			int start_cron_seconds = cron->params[i][0]*60;
-			int current_exec_seconds = time_params[i]*60;
-			int next_exec_seconds = time_params[i]*60 + module_interval*agent_interval;
-			if (current_exec_seconds > start_cron_seconds && current_exec_seconds > next_exec_seconds) {
-				start_cron_seconds += 3600;
-			}
-			if ((current_exec_seconds <= start_cron_seconds) && (start_cron_seconds <= next_exec_seconds)) {
-				overflow_cron = true;
-			}
-		}
-		
-		// Check interval
-		if (cron->params[i][0] <= cron->params[i][1]) {
-			if ((time_params[i] < cron->params[i][0] || time_params[i] > cron->params[i][1]) && !overflow_cron) {
-				return 0;
-			}
-		} else {
-			if ((time_params[i] < cron->params[i][0] && time_params[i] > cron->params[i][1]) && !overflow_cron) {
-				return 0;
-			}
-		}
-	}
+	this->cron->update(now, interval);
 
-	// Do not check in the next minute, hour, day or month.
-	offset = 0; 
-	if (cron->interval >= 0) {
-		offset = cron->interval;
-	} else if(cron->params[0][0] >= 0) {
-		// 1 minute
-		offset = 60;
-	} else if(cron->params[1][0] >= 0) {
-		// 1 hour
-		offset = 3600;
-	} else if(cron->params[2][0] >=0 || cron->params[4][0] >= 0) {
-		// 1 day
-		offset = 86400;
-	} else if(cron->params[3][0] >= 0) {
-		// 31 days
-		offset = 2678400;
-	}
-
-	cron->utimestamp = current_time + offset;
-	return 1;
+	return execute;
 }
 
 /** 
  * Sets the module cron from a string.
- * 
- * @return 1 if the module should run, 0 if not.
  */
 void
 Pandora_Module::setCron (string cron_string) {
-	int i, value;
-	char cron_params[5][256], bottom[256], top[256];
-	
-	/* Create the new cron if necessary */
-	if (this->cron == NULL) {
-		this->cron = new Cron ();
-	}
-	
-	/* Parse the cron string */
-	if (sscanf (cron_string.c_str (), "%255s %255s %255s %255s %255s", cron_params[0], cron_params[1], cron_params[2], cron_params[3], cron_params[4]) != 5) {
-		pandoraDebug ("Invalid cron string: %s", cron_string.c_str ());
-		return;
-	}
-	
-	/* Fill the cron structure */
-	this->cron->utimestamp = 0;
-	this->cron->interval = -1;
-	for (i = 0; i < 5; i++) {
-		
-		/* Wildcard */
-		if (cron_params[i][0] == '*') {
-			this->cron->params[i][0] = -1;
-
-		/* Interval */
-		} else if (sscanf (cron_params[i], "%255[^-]-%255s", bottom, top) == 2) {
-			value = atoi (bottom);
-			this->cron->params[i][0] = value;
-			value = atoi (top);
-			this->cron->params[i][1] = value;
-		
-		/* Single value */
-		} else {
-			value = atoi (cron_params[i]);
-			this->cron->params[i][0] = value;
-			this->cron->params[i][1] = value;
-		}
-	}	
-}
-
-/** 
- * Sets the interval of the module cron.
- * 
- * @param interval Module cron interval in seconds.
- */
-void
-Pandora_Module::setCronInterval (int interval) {
-	if (this->cron == NULL) {
-		this->cron = new Cron ();
-	}
-	
-	this->cron->interval = interval;
+	this->cron = new Cron(cron_string);
 }
 
 /** 
@@ -1787,5 +1688,23 @@ Pandora_Module::getIntensiveMatch () {
 	return this->intensive_match;
 }
 
+bool
+Pandora_Module::getAsync () {
+	return this->async;
+}
 					
+/**
+ * Get current exections
+ */
+long
+Pandora_Module::getExecutions () {
+	return this->executions;
+}
 
+/**
+ * Set current execution (global) used for brokers.
+ */
+void
+Pandora_Module::setExecutions (long executions) {
+	this->executions = executions;
+}

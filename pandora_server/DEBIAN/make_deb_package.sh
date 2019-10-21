@@ -14,7 +14,7 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 
-pandora_version="6.1dev-160921"
+pandora_version="7.0NG.739-191021"
 
 package_cpan=0
 package_pandora=1
@@ -67,7 +67,9 @@ then
 	mkdir -p temp_package/usr/bin/
 	mkdir -p temp_package/usr/sbin/
 	mkdir -p temp_package/etc/init.d/
+	mkdir -p temp_package/lib/systemd/system/
 	mkdir -p temp_package/etc/pandora/
+	mkdir -p temp_package/etc/tentacle/
 	mkdir -p temp_package/var/spool/pandora/data_in
 	chmod 770 temp_package/var/spool/pandora/data_in
 	mkdir -p temp_package/var/spool/pandora/data_in/conf
@@ -80,7 +82,9 @@ then
 	mkdir -p temp_package/var/spool/pandora/data_in/trans
         chmod 770 temp_package/var/spool/pandora/data_in/trans
 	mkdir -p temp_package/var/log/pandora/
+	chmod 754 temp_package/var/log/pandora/
 	mkdir -p temp_package/usr/share/pandora_server/conf/
+	mkdir -p temp_package/usr/share/tentacle_server/conf/
 	mkdir -p temp_package/usr/lib/perl5/
 	mkdir -p temp_package/usr/share/man/man1/
 	mkdir -p temp_package/etc/logrotate.d/
@@ -89,13 +93,17 @@ then
 	cp -aRf bin/pandora_exec temp_package/usr/bin/pandora_exec.server
 	cp -aRf bin/tentacle_server temp_package/usr/bin/
 	
-	cp -aRf conf/* temp_package/usr/share/pandora_server/conf/
+	cp -aRf conf/pandora_* temp_package/usr/share/pandora_server/conf/
+	cp -aRf conf/tentacle_* temp_package/usr/share/tentacle_server/conf/
 	cp -aRf util temp_package/usr/share/pandora_server/
 	cp -aRf lib/* temp_package/usr/lib/perl5/
 	cp -aRf AUTHORS COPYING README temp_package/usr/share/pandora_server/
 	
 	cp -aRf util/pandora_server temp_package/etc/init.d/
 	cp -aRf util/tentacle_serverd temp_package/etc/init.d/
+
+	cp -aRf util/pandora_server.service temp_package/lib/systemd/system/
+	cp -aRf util/tentacle_serverd.service temp_package/lib/systemd/system/
 	
 	cp -aRf man/man1/* temp_package/usr/share/man/man1/
 	

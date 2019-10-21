@@ -7,6 +7,19 @@ RUN { \
 	echo 'baseurl = http://dl.fedoraproject.org/pub/epel/6/x86_64'; \
 	echo 'enabled=1'; \
 	echo 'gpgcheck=0'; \
+	echo  ''; \
+	echo '[remi-php72]'; \
+	echo 'name=Remi php72'; \
+	echo 'baseurl=http://rpms.remirepo.net/enterprise/6/php72/x86_64/'; \
+	echo 'enabled=1'; \
+	echo 'gpgcheck=0'; \
+	echo  ''; \
+	echo '[remi-safe]'; \
+	echo 'name=Safe Remis RPM repository'; \
+	echo 'mirrorlist=http://cdn.remirepo.net/enterprise/$releasever/safe/mirror'; \
+	echo 'enabled=1'; \
+	echo 'gpgcheck=0'; \
+	echo  ''; \
 } > /etc/yum.repos.d/extra_repos.repo
 
 RUN { \
@@ -19,13 +32,14 @@ RUN { \
 
 RUN yum -y update; yum clean all;
 
+RUN yum --disablerepo=updates install -y firefox
+
 # Generic dependencies
 RUN yum install -y \
-	firefox \
 	python-pip \
 	xorg-x11-server-Xvfb; yum clean all;
 RUN pip install pyvirtualdisplay
-RUN pip install selenium
+RUN pip install 'selenium==2.53.0'
 RUN pip install unittest2
 RUN pip install testtools
 
@@ -36,7 +50,6 @@ RUN yum install -y \
 	cronie \
 	ntp \
 	openldap \
-	anytermd \
 	nfdump \
 	wget \
 	curl \
@@ -56,6 +69,7 @@ RUN yum install -y \
 	php-ldap \ 
 	php-common \ 
 	php-zip \ 
+	php-xmlrpc \ 
 	nmap \
 	xprobe2 \
 	mysql-server \
@@ -63,12 +77,10 @@ RUN yum install -y \
 
 # Pandora FMS Server dependencies
 RUN yum install -y \ 
-	git \
-	cronie \
 	ntp \
-	wget \
-	curl \
-	xterm \
+	vim \
+	htop \
+	nano \
 	postfix \
 	wmic \
 	perl-HTML-Tree \ 
@@ -93,9 +105,44 @@ RUN yum install -y \
 	perl-Time-HiRes \ 
 	perl-XML-Twig \ 
 	perl-Encode-Locale \
-	net-snmp \
 	net-snmp-utils \
+	fontconfig \
+	freetype \
+	freetype-devel \
+	fontconfig-devel \
+	libstdc++ \
 	perl-Test-Simple; yum clean all;
 
-#Exposing ports for: HTTP, SNMP Traps, Anytermd (SSH), Anytermd (Telnet), Tentacle protocol
-EXPOSE 80 162/udp 8022 8023 41121
+RUN wget http://rpmfind.net/linux/centos/6.9/os/i386/Packages/gettext-0.17-18.el6.i686.rpm; \
+	yum localinstall -y gettext-0.17-18.el6.i686.rpm; \
+	rm -rf gettext-0.17-18.el6.i686.rpm; \
+	wget http://ftp.tu-chemnitz.de/pub/linux/dag/redhat/el6/en/x86_64/rpmforge/RPMS/perl-Geo-IP-1.38-1.el6.rf.x86_64.rpm; \
+	yum localinstall -y perl-Geo-IP-1.38-1.el6.rf.x86_64.rpm; \
+	rm -rf perl-Geo-IP-1.38-1.el6.rf.x86_64.rpm;
+
+#Install phantomjs required for export graph pdf.
+RUN mkdir -p /opt/phantomjs/bin && cd /opt/phantomjs/bin; \
+	wget https://netcologne.dl.sourceforge.net/project/pandora/Tools%20and%20dependencies%20%28All%20versions%29/DEB%20Debian%2C%20Ubuntu/phantomjs; \
+	chmod +x phantomjs; \
+	ln -s /opt/phantomjs/bin/phantomjs /usr/bin/;
+
+# Install debugg dependencies.
+RUN yum install -y \
+	php-devel \
+	php-pear \
+	gcc \
+	gcc-c++ \
+	autoconf \
+	automake  && \
+	pecl install Xdebug && \
+	git clone https://github.com/tideways/php-xhprof-extension && \
+	cd php-xhprof-extension && \
+	phpize && \
+	./configure && \
+	make && \
+	make install && \
+	cd .. && \
+	rm -rf php-xhprof-extension
+
+#Exposing ports for: HTTP, SNMP Traps, Tentacle protocol
+EXPOSE 80 162/udp 41121

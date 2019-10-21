@@ -26,12 +26,18 @@ use HTML::Entities;
 use Encode;
 use Socket qw(inet_ntoa inet_aton);
 use Sys::Syslog;
+use Scalar::Util qw(looks_like_number);
+use LWP::UserAgent;
+use threads;
+use threads::shared;
 
 # New in 3.2. Used to sendmail internally, without external scripts
 # use Module::Loaded;
 
 # Used to calculate the MD5 checksum of a string
 use constant MOD232 => 2**32;
+# 2 to the power of 32.
+use constant POW232 => 2**32;
 
 # UTF-8 flags deletion from multibyte characters when files are opened.
 use open OUT => ":utf8";
@@ -46,7 +52,7 @@ our @EXPORT = qw(
 	DATASERVER
 	NETWORKSERVER
 	SNMPCONSOLE
-	RECONSERVER
+	DISCOVERYSERVER
 	PLUGINSERVER
 	PREDICTIONSERVER
 	WMISERVER
@@ -57,14 +63,38 @@ our @EXPORT = qw(
 	ICMPSERVER
 	SNMPSERVER
 	SATELLITESERVER
+	MFSERVER
 	TRANSACTIONALSERVER
+	SYNCSERVER
+	SYSLOGSERVER
+	WUXSERVER
+	PROVISIONINGSERVER
+	MIGRATIONSERVER
 	METACONSOLE_LICENSE
+	OFFLINE_LICENSE
+	DISCOVERY_HOSTDEVICES
+	DISCOVERY_HOSTDEVICES_CUSTOM
+	DISCOVERY_CLOUD_AWS
+	DISCOVERY_APP_VMWARE
+	DISCOVERY_APP_MYSQL
+	DISCOVERY_APP_ORACLE
+	DISCOVERY_CLOUD_AWS_EC2
+	DISCOVERY_CLOUD_AWS_RDS
+	DISCOVERY_CLOUD_AZURE_COMPUTE
+	DISCOVERY_DEPLOY_AGENTS
 	$DEVNULL
 	$OS
 	$OS_VERSION
 	RECOVERED_ALERT
 	FIRED_ALERT
-    cron_get_closest_in_range
+	MODULE_NORMAL
+	MODULE_CRITICAL
+	MODULE_WARNING
+	MODULE_UNKNOWN
+	MODULE_NOTINIT
+	$THRRUN
+	api_call_url
+	cron_get_closest_in_range
 	cron_next_execution
 	cron_next_execution_date
 	cron_check_syntax
@@ -77,6 +107,8 @@ our @EXPORT = qw(
 	sqlWrap
 	is_numeric
 	is_metaconsole
+	is_offline
+	to_number
 	clean_blank
 	pandora_sendmail
 	pandora_trash_ascii
@@ -91,6 +123,7 @@ our @EXPORT = qw(
 	md5_init
 	pandora_ping
 	pandora_ping_latency
+	pandora_block_ping
 	resolve_hostname
 	ticks_totime
 	safe_input
@@ -98,13 +131,23 @@ our @EXPORT = qw(
 	month_have_days
 	translate_obj
 	valid_regex
+	read_file
+	set_file_permissions
+	uri_encode
+	check_server_threads
+	start_server_thread
+	stop_server_threads
+	generate_agent_name_hash
+	long_to_ip
+	ip_to_long
+	get_enabled_servers
 );
 
 # ID of the different servers
 use constant DATASERVER => 0;
 use constant NETWORKSERVER => 1;
 use constant SNMPCONSOLE => 2;
-use constant RECONSERVER => 3;
+use constant DISCOVERYSERVER => 3;
 use constant PLUGINSERVER => 4;
 use constant PREDICTIONSERVER => 5;
 use constant WMISERVER => 6;
@@ -116,17 +159,45 @@ use constant ICMPSERVER => 11;
 use constant SNMPSERVER => 12;
 use constant SATELLITESERVER => 13;
 use constant TRANSACTIONALSERVER => 14;
+use constant MFSERVER => 15;
+use constant SYNCSERVER => 16;
+use constant WUXSERVER => 17;
+use constant SYSLOGSERVER => 18;
+use constant PROVISIONINGSERVER => 19;
+use constant MIGRATIONSERVER => 20;
 
-# Value for a metaconsole license type
+# Module status
+use constant MODULE_NORMAL => 0;
+use constant MODULE_CRITICAL => 1;
+use constant MODULE_WARNING => 2;
+use constant MODULE_UNKNOWN => 3;
+use constant MODULE_NOTINIT => 4;
+
+# Mask for a metaconsole license type
 use constant METACONSOLE_LICENSE => 0x01;
+
+# Mask for an offline license type
+use constant OFFLINE_LICENSE => 0x02;
 
 # Alert modes
 use constant RECOVERED_ALERT => 0;
 use constant FIRED_ALERT => 1;
 
+# Discovery task types
+use constant DISCOVERY_HOSTDEVICES => 0;
+use constant DISCOVERY_HOSTDEVICES_CUSTOM => 1;
+use constant DISCOVERY_CLOUD_AWS => 2;
+use constant DISCOVERY_APP_VMWARE => 3;
+use constant DISCOVERY_APP_MYSQL => 4;
+use constant DISCOVERY_APP_ORACLE => 5;
+use constant DISCOVERY_CLOUD_AWS_EC2 => 6;
+use constant DISCOVERY_CLOUD_AWS_RDS => 7;
+use constant DISCOVERY_CLOUD_AZURE_COMPUTE => 8;
+use constant DISCOVERY_DEPLOY_AGENTS => 9;
+
 # Set OS, OS version and /dev/null
 our $OS = $^O;
-our $OS_VERSION;
+our $OS_VERSION = "unknown";
 our $DEVNULL = '/dev/null';
 if ($OS eq 'linux') {
 	$OS_VERSION = `lsb_release -sd 2>/dev/null`;
@@ -135,9 +206,203 @@ if ($OS eq 'linux') {
 } elsif ($OS =~ /win/i) {
 	$OS = "windows";
 	$OS_VERSION = `ver`;
+	$OS_VERSION =~ s/[^[:ascii:]]//g; 
 	$DEVNULL = '/Nul';
+} elsif ($OS eq 'freebsd') {
+	$OS_VERSION = `uname -r`;
 }
 chomp($OS_VERSION);
+
+# Entity to character mapping. Contains a few tweaks to make it backward compatible with the previous safe_input implementation.
+my %ENT2CHR = (
+	'#x00' => chr(0), 
+	'#x01' => chr(1), 
+	'#x02' => chr(2), 
+	'#x03' => chr(3), 
+	'#x04' => chr(4), 
+	'#x05' => chr(5), 
+	'#x06' => chr(6), 
+	'#x07' => chr(7), 
+	'#x08' => chr(8), 
+	'#x09' => chr(9), 
+	'#x0a' => chr(10), 
+	'#x0b' => chr(11), 
+	'#x0c' => chr(12), 
+	'#x0d' => chr(13), 
+	'#x0e' => chr(14), 
+	'#x0f' => chr(15), 
+	'#x10' => chr(16), 
+	'#x11' => chr(17), 
+	'#x12' => chr(18), 
+	'#x13' => chr(19), 
+	'#x14' => chr(20), 
+	'#x15' => chr(21), 
+	'#x16' => chr(22), 
+	'#x17' => chr(23), 
+	'#x18' => chr(24), 
+	'#x19' => chr(25), 
+	'#x1a' => chr(26), 
+	'#x1b' => chr(27), 
+	'#x1c' => chr(28), 
+	'#x1d' => chr(29), 
+	'#x1e' => chr(30), 
+	'#x1f' => chr(31), 
+	'#x20' => chr(32), 
+	'quot' => chr(34), 
+	'amp' => chr(38), 
+	'#039' => chr(39), 
+	'#40' => chr(40), 
+	'#41' => chr(41), 
+	'lt' => chr(60), 
+	'gt' => chr(62), 
+	'#92' => chr(92), 
+	'#x80' => chr(128), 
+	'#x81' => chr(129), 
+	'#x82' => chr(130), 
+	'#x83' => chr(131), 
+	'#x84' => chr(132), 
+	'#x85' => chr(133), 
+	'#x86' => chr(134), 
+	'#x87' => chr(135), 
+	'#x88' => chr(136), 
+	'#x89' => chr(137), 
+	'#x8a' => chr(138), 
+	'#x8b' => chr(139), 
+	'#x8c' => chr(140), 
+	'#x8d' => chr(141), 
+	'#x8e' => chr(142), 
+	'#x8f' => chr(143), 
+	'#x90' => chr(144), 
+	'#x91' => chr(145), 
+	'#x92' => chr(146), 
+	'#x93' => chr(147), 
+	'#x94' => chr(148), 
+	'#x95' => chr(149), 
+	'#x96' => chr(150), 
+	'#x97' => chr(151), 
+	'#x98' => chr(152), 
+	'#x99' => chr(153), 
+	'#x9a' => chr(154), 
+	'#x9b' => chr(155), 
+	'#x9c' => chr(156), 
+	'#x9d' => chr(157), 
+	'#x9e' => chr(158), 
+	'#x9f' => chr(159), 
+	'#xa0' => chr(160), 
+	'#xa1' => chr(161), 
+	'#xa2' => chr(162), 
+	'#xa3' => chr(163), 
+	'#xa4' => chr(164), 
+	'#xa5' => chr(165), 
+	'#xa6' => chr(166), 
+	'#xa7' => chr(167), 
+	'#xa8' => chr(168), 
+	'#xa9' => chr(169), 
+	'#xaa' => chr(170), 
+	'#xab' => chr(171), 
+	'#xac' => chr(172), 
+	'#xad' => chr(173), 
+	'#xae' => chr(174), 
+	'#xaf' => chr(175), 
+	'#xb0' => chr(176), 
+	'#xb1' => chr(177), 
+	'#xb2' => chr(178), 
+	'#xb3' => chr(179), 
+	'#xb4' => chr(180), 
+	'#xb5' => chr(181), 
+	'#xb6' => chr(182), 
+	'#xb7' => chr(183), 
+	'#xb8' => chr(184), 
+	'#xb9' => chr(185), 
+	'#xba' => chr(186), 
+	'#xbb' => chr(187), 
+	'#xbc' => chr(188), 
+	'#xbd' => chr(189), 
+	'#xbe' => chr(190), 
+	'Aacute' => chr(193), 
+	'Auml' => chr(196), 
+	'Eacute' => chr(201), 
+	'Euml' => chr(203), 
+	'Iacute' => chr(205), 
+	'Iuml' => chr(207), 
+	'Ntilde' => chr(209), 
+	'Oacute' => chr(211), 
+	'Ouml' => chr(214), 
+	'Uacute' => chr(218), 
+	'Uuml' => chr(220), 
+	'aacute' => chr(225), 
+	'auml' => chr(228), 
+	'eacute' => chr(233), 
+	'euml' => chr(235), 
+	'iacute' => chr(237), 
+	'iuml' => chr(239), 
+	'ntilde' => chr(241), 
+	'oacute' => chr(243), 
+	'ouml' => chr(246), 
+	'uacute' => chr(250), 
+	'uuml' => chr(252), 
+);
+
+# Construct the character to entity mapping.
+my %CHR2ENT;
+while (my ($ent, $chr) = each(%ENT2CHR)) {
+	$CHR2ENT{$chr} = "&" . $ent . ";";
+}
+
+# Threads started by the Pandora FMS Server.
+my @ServerThreads;
+
+# Keep threads running.
+our $THRRUN :shared = 1;
+
+##########################################################################
+## Reads a file and returns entire content or undef if error.
+##########################################################################
+sub read_file {
+	my $path = shift;
+
+	my $_FILE;
+	if( !open($_FILE, "<", $path) ) {
+		# failed to open, return undef
+		return undef;
+	}
+
+	# Slurp configuration file content.
+	my $content = do { local $/; <$_FILE> };
+
+	# Close file
+	close($_FILE);
+
+	return $content;
+}
+
+
+###############################################################################
+# Sets user:group owner for the given file
+###############################################################################
+sub set_file_permissions($$;$) {
+	my ($pa_config, $file, $grants) = @_;
+	if ($^O !~ /win/i ) { # Only for Linux environments
+		eval {
+			if (defined ($grants)) {
+				$grants = oct($grants);
+			}
+			else {
+				$grants = oct("0777");
+			}
+			my $uid  = getpwnam($pa_config->{'user'});
+			my $gid  = getgrnam($pa_config->{'group'});
+			my $perm = $grants & (~oct($pa_config->{'umask'}));
+
+			chown $uid, $gid, $file;
+			chmod ( $perm, $file );
+		};
+		if ($@) {
+			# Ignore error
+		}
+	}
+}
+
 
 ########################################################################
 ## SUB pandora_trash_ascii 
@@ -160,50 +425,10 @@ sub pandora_trash_ascii {
 ########################################################################
 sub safe_input($) {
 	my $value = shift;
-	
-	$value = encode_entities ($value, "<>&");
-	
-	#//Replace the character '\' for the equivalent html entitie
-	$value =~ s/\\/&#92;/gi;
-	
-	#// First attempt to avoid SQL Injection based on SQL comments
-	#// Specific for MySQL.
-	$value =~ s/\/\*/&#47;&#42;/gi;
-	$value =~ s/\*\//&#42;&#47;/gi;
-	
-	#//Replace ' for the html entitie
-	$value =~ s/\"/&quot;/gi;
-	
-	#//Replace ' for the html entitie
-	$value =~ s/\'/&#039;/gi;
-	
-	#//Replace ( for the html entitie
-	$value =~ s/\(/&#40;/gi;
-	
-	#//Replace ( for the html entitie
-	$value =~ s/\)/&#41;/gi;	
-	
-	#//Replace some characteres for html entities
-	for (my $i=0;$i<33;$i++) {
-		my $pattern = chr($i);
-		my $hex = ascii_to_html($i);
-		$value =~ s/$pattern/$hex/gi;
-	}
-	
-	for (my $i=128;$i<191;$i++) {
-		my $pattern = chr($i);
-		my $hex = ascii_to_html($i);
-		$value =~ s/$pattern/$hex/gi;
-	}
-	
-	#//Replace characteres for tildes and others
-	my $trans = get_html_entities();
-	
-	foreach(keys(%$trans))
-	{
-		my $pattern = chr($_);
-		$value =~ s/$pattern/$trans->{$_}/g;
-	}
+
+	return "" unless defined($value);
+
+	$value =~ s/([\x00-\xFF])/$CHR2ENT{$1}||$1/ge;
 	
 	return $value;
 }
@@ -213,98 +438,12 @@ sub safe_input($) {
 ########################################################################
 sub safe_output($) {
 	my $value = shift;
-	
-	$value = decode_entities ($value);
-	
-	#//Replace the character '\' for the equivalent html entitie
-	$value =~ s/&#92;/\\/gi;
-	
-	#// First attempt to avoid SQL Injection based on SQL comments
-	#// Specific for MySQL.
-	$value =~ s/&#47;&#42;/\/\*/gi;
-	$value =~ s/&#42;&#47;/\*\//gi;
-	
-	#//Replace ( for the html entitie
-	$value =~ s/&#40;/\(/gi;
-	
-	#//Replace ( for the html entitie
-	$value =~ s/&#41;/\)/gi;	
-	
-	#//Replace ' for the html entitie
-	$value =~ s/&#039;/')/gi;	
-	
-	#//Replace " for the html entitie
-	$value =~ s/&quot;/")/gi;	
-	
-	#//Replace some characteres for html entities
-	for (my $i=0;$i<33;$i++) {
-		my $pattern = chr($i);
-		my $hex = ascii_to_html($i);
-		$value =~ s/$hex/$pattern/gi;
-	}
-	
-	for (my $i=128;$i<191;$i++) {
-		my $pattern = chr($i);
-		my $hex = ascii_to_html($i);
-		$value =~ s/$hex/$pattern/gi;
-	}
-	
-	#//Replace characteres for tildes and others
-	my $trans = get_html_entities();
-	
-	foreach(keys(%$trans))
-	{
-		my $pattern = chr($_);
-		$value =~ s/$trans->{$_}/$pattern/g;
-	}
-	
+
+	return "" unless defined($value);
+
+	_decode_entities ($value, \%ENT2CHR);
+
 	return $value;
-}
-
-##########################################################################
-# SUB get_html_entities
-# Returns a hash table with the acute and special html entities
-# Usefull for future chars addition:
-# http://cpansearch.perl.org/src/GAAS/HTML-Parser-3.68/lib/HTML/Entities.pm
-##########################################################################
-
-sub get_html_entities {
-	my %trans = (
-		225 => '&aacute;',
-		233 => '&eacute;', 
-		237 => '&iacute;',
-		243 => '&oacute;',
-		250 => '&uacute;',
-		193 => '&Aacute;',
-		201 => '&Eacute;', 
-		205 => '&Iacute;',
-		211 => '&Oacute;',
-		218 => '&Uacute;',
-		228 => '&auml;',
-		235 => '&euml;',
-		239 => '&iuml;',
-		246 => '&ouml;',
-		252 => '&uuml;',
-		196 => '&Auml;',
-		203 => '&Euml;',
-		207 => '&Iuml;',
-		214 => '&Ouml;',
-		220 => '&Uuml;',
-		241 => '&ntilde;',
-		209 => '&Ntilde;'
-	);
-	
-	return \%trans;
-}
-########################################################################
-# SUB ascii_to_html (string)
-# Convert an ascii string to hexadecimal
-########################################################################
-
-sub ascii_to_html($) {
-	my $ascii = shift;
-	
-	return "&#x".substr(unpack("H*", pack("N", $ascii)),6,3).";";
 }
 
 ########################################################################
@@ -330,7 +469,7 @@ sub pandora_daemonize {
 			
 			# check if pandora_server is running
 			if (kill (0, $pid)) {
-				die "[FATAL] pandora_server already running, pid: $pid.";
+				die "[FATAL] " . pandora_get_initial_product_name() . " Server already running, pid: $pid.";
 			}
 			logger ($pa_config, '[W] Stale PID file, overwriting.', 1);
 		}
@@ -376,11 +515,18 @@ sub pandora_sendmail {
 	my %mail = ( To	=> $to_address,
 		Message		=> $message,
 		Subject		=> encode('MIME-Header', $subject),
-		'X-Mailer'	=> "Pandora FMS",
+		'X-Mailer'	=> $pa_config->{"rb_product_name"},
 		Smtp		=> $pa_config->{"mta_address"},
 		Port		=> $pa_config->{"mta_port"},
 		From		=> $pa_config->{"mta_from"},
+		Encryption	=> $pa_config->{"mta_encryption"},
 	);
+
+	# Set the timeout.
+	$PandoraFMS::Sendmail::mailcfg{'timeout'} = $pa_config->{"tcp_timeout"};
+
+	# Enable debugging.
+	$PandoraFMS::Sendmail::mailcfg{'debug'} = $pa_config->{"verbosity"};
 	
 	if (defined($content_type)) {
 		$mail{'Content-Type'} = $content_type;
@@ -397,15 +543,12 @@ sub pandora_sendmail {
 		$mail{auth} = {user=>$pa_config->{"mta_user"}, password=>$pa_config->{"mta_pass"}, method=>$pa_config->{"mta_auth"}, required=>1 };
 	}
 
-	if (sendmail %mail) { 
-		return;
-	}
-	else {
-		logger ($pa_config, "[ERROR] Sending email to $to_address with subject $subject", 1);
-		if (defined($Mail::Sendmail::error)){
-			logger ($pa_config, "ERROR Code: $Mail::Sendmail::error", 5);
+	eval {
+		if (!sendmail(%mail)) { 
+			logger ($pa_config, "[ERROR] Sending email to $to_address with subject $subject", 1);
+			logger ($pa_config, "ERROR Code: $Mail::Sendmail::error", 5) if (defined($Mail::Sendmail::error));
 		}
-	}
+	};
 }
 
 ##########################################################################
@@ -426,7 +569,8 @@ sub is_numeric {
 	my $SIGN   = qr{ [+-] }xms;
 	my $NUMBER = qr{ ($SIGN?) ($DIGITS) }xms;
 	if ( $val !~ /^${NUMBER}$/ ) {
-		return 0;   #Non-numeric
+		#Non-numeric, or maybe... leave looks_like_number try
+		return looks_like_number($val);
 	}
 	else {
 		return 1;   #Numeric
@@ -481,7 +625,7 @@ sub logger ($$;$) {
 	$message = safe_output ($message);
 
 	$level = 1 unless defined ($level);
-	return if ($level > $pa_config->{'verbosity'});
+	return if (!defined ($pa_config->{'verbosity'}) || $level > $pa_config->{'verbosity'});
 
 	if (!defined($pa_config->{'log_file'})) {
 		print strftime ("%Y-%m-%d %H:%M:%S", localtime()) . " [V". $level ."] " . $message . "\n";
@@ -497,19 +641,29 @@ sub logger ($$;$) {
 		# Set the security level
 		my $security_level = 'info';
 		if ($level < 2) {
-			$security = 'crit';
+			$security_level = 'crit';
 		} elsif ($level < 5) {
-			$security = 'warn';
+			$security_level = 'warn';
 		}
 
 		openlog('pandora_server', 'ndelay', 'daemon');
 		syslog($security_level, $message);
 		closelog();
 	} else {
+		# Obtain the script that invoke this log
+		my $parent_caller = "";
+		$parent_caller = ( caller(2) )[1];
+		if (defined $parent_caller) {
+			$parent_caller = (split '/', $parent_caller)[-1];
+			$parent_caller =~ s/\.[^.]+$//;
+			$parent_caller = " ** " . $parent_caller . " **: ";
+		} else {
+			$parent_caller = " ";
+		}
 		open (FILE, ">> $file") or die "[FATAL] Could not open logfile '$file'";
 		# Get an exclusive lock on the file (LOCK_EX)
 		flock (FILE, 2);
-		print FILE strftime ("%Y-%m-%d %H:%M:%S", localtime()) . " " . $pa_config->{'servername'} . " [V". $level ."] " . $message . "\n";
+		print FILE strftime ("%Y-%m-%d %H:%M:%S", localtime()) . $parent_caller . (defined($pa_config->{'servername'}) ? $pa_config->{'servername'} : '') . " [V". $level ."] " . $message . "\n";
 		close (FILE);
 	}
 }
@@ -604,12 +758,9 @@ sub enterprise_load ($) {
 	else {
 		eval 'require PandoraFMS::Enterprise;';
 	}
-	
-	
-	
+
 	# Ops
 	if ($@) {
-		
 		# Enterprise.pm not found.
 		return 0 if ($@ =~ m/PandoraFMS\/Enterprise\.pm.*\@INC/);
 
@@ -821,6 +972,24 @@ sub dateTimeToTimestamp {
 sub disk_free ($) {
 	my $target = $_[0];
 
+	my $OSNAME = $^O;
+
+	# Get the free disk on data_in folder unit
+	if ($OSNAME eq "MSWin32") {
+		# Check relative path
+		my $unit;
+		if ($target =~ m/^([a-zA-Z]):/gi) {
+			$unit = $1;
+		} else {
+			return;
+		}
+		# Get the free space of unit found
+		my $all_disk_info = `wmic logicaldisk get caption, freespace`;
+		if ($all_disk_info =~ m/$unit:\D*(\d+)/gmi){
+			return $1/(1024*1024);
+		}
+		return;
+	}
 	# Try to use df command with Posix parameters... 
 	my $command = "df -k -P ".$target." | tail -1 | awk '{ print \$4/1024}'";
 	my $output = `$command`;
@@ -834,6 +1003,10 @@ sub load_average {
 
 	if ($OSNAME eq "freebsd"){
 		$load_average = ((split(/\s+/, `/sbin/sysctl -n vm.loadavg`))[1]);
+	} elsif ($OSNAME eq "MSWin32") {
+		# Windows hasn't got load average.
+		$load_average = `powershell "(Get-WmiObject win32_processor | Measure-Object -property LoadPercentage -Average).average"`;
+		chop($load_average);
 	}
 	# by default LINUX calls
 	else {
@@ -855,6 +1028,14 @@ sub free_mem {
 	}
 	elsif ($OSNAME eq "netbsd"){
 		$free_mem = `cat /proc/meminfo | grep MemFree | awk '{ print \$2 }'`;
+	}
+	elsif ($OSNAME eq "MSWin32"){
+		$free_mem = `wmic OS get FreePhysicalMemory /Value`;
+		if ($free_mem =~ m/=(.*)$/gm) {
+			$free_mem = $1;
+		} else {
+			$free_mem = undef;
+		}
 	}
 	# by default LINUX calls
 	else {
@@ -1157,6 +1338,24 @@ sub pandora_ping_latency ($$$$) {
 }
 
 ########################################################################
+=head2 C<< pandora_block_ping (I<$pa_config>, I<$hosts>) >> 
+
+Ping all given hosts. Returns an array with all hosts detected as alive.
+
+=cut
+########################################################################
+sub pandora_block_ping($@) {
+	my ($pa_config, @hosts) = @_;
+
+	# fping timeout in milliseconds
+	my $cmd = $pa_config->{'fping'} . " -a -q -t " . (1000 * $pa_config->{'networktimeout'}) . " " . (join (' ', @hosts));
+
+	my @output = `$cmd 2>$DEVNULL`;
+
+	return @output;
+}
+
+########################################################################
 =head2 C<< month_have_days (I<$month>, I<$year>) >> 
 
 Pass a $month (as january 0 number and each month with numbers) and the year
@@ -1173,16 +1372,16 @@ sub month_have_days($$) {
 	if (  $year <= 1752  ) {
 		# Note:  Although September 1752 only had 19 days,
 		# they were numbered 1,2,14..30!
-		if (1752 == $year  &&  9 == $month) {
+		if (1752 == $year  &&  8 == $month) {
 			return 19;
 		}
-		if (2 == $month  &&  0 == $year % 4) {
+		if (1 == $month  &&  0 == $year % 4) {
 			return 29;
 		}
 	}
 	else {
 		#Check if Leap year
-		if (2 == $month && 0 == $year % 4 && 0 == $year%100
+		if (1 == $month && 0 == $year % 4 && 0 == $year%100
 			|| 0 == $year%400) {
 			return 29;
 		}
@@ -1214,54 +1413,36 @@ sub translate_obj ($$$) {
 ###############################################################################
 # Get the number of seconds left to the next execution of the given cron entry.
 ###############################################################################
-sub cron_next_execution ($) {
-	my ($cron) = @_;
+sub cron_next_execution {
+	my ($cron, $interval) = @_;
 
 	# Check cron conf format
 	if ($cron !~ /^((\*|(\d+(-\d+){0,1}))\s*){5}$/) {
-		return 300;
+		return $interval;
 	}
 
 	# Get day of the week and month from cron config
-	my ($mday, $wday) = (split (/\s/, $cron))[2, 4];
+	my ($wday) = (split (/\s/, $cron))[4];
+	# Check the wday values to avoid infinite loop
+	my ($wday_down, $wday_up) = cron_get_interval($wday);
+	if ($wday_down ne "*" && ($wday_down > 6 || (defined($wday_up) && $wday_up > 6))) {
+		$wday = "*";
+	}
 
 	# Get current time and day of the week
 	my $cur_time = time();
 	my $cur_wday = (localtime ($cur_time))[6];
 
-	# Any day of the week
-	if ($wday eq '*') {
-		my $nex_time = cron_next_execution_date ($cron,  $cur_time);
-		return $nex_time - time();
-	}
-	# A range?
-	else {
-		$wday = cron_get_closest_in_range ($cur_wday, $wday);
+	my $nex_time = cron_next_execution_date ($cron, $cur_time, $interval);
+
+	# Check the day
+	while (!cron_check_interval($wday, (localtime ($nex_time))[6])) {
+		# If it does not acomplish the day of the week, go to the next day.
+		$nex_time += 86400;
+		$nex_time = cron_next_execution_date ($cron, $nex_time, 0);
 	}
 
-	# A specific day of the week
-	my $count = 0;
-	my $nex_time = $cur_time;
-	do {
-		$nex_time = cron_next_execution_date ($cron, $nex_time);
-		my $nex_time_wd = $nex_time;
-		my ($nex_mon, $nex_wday) = (localtime ($nex_time_wd))[4, 6];
-		my $nex_mon_wd;
-		do {
-			# Check the day of the week
-			if ($nex_wday == $wday) {
-				return $nex_time_wd - time();
-			}
-			
-			# Move to the next day of the month
-			$nex_time_wd += 86400;
-			($nex_mon_wd, $nex_wday) = (localtime ($nex_time_wd))[4, 6];
-		} while ($mday eq '*' && $nex_mon_wd == $nex_mon);
-		$count++;
-	} while ($count < 60);
-
-	# Something went wrong, default to 5 minutes
-	return 300;
+	return $nex_time - time();
 }
 ###############################################################################
 # Get the number of seconds left to the next execution of the given cron entry.
@@ -1273,96 +1454,216 @@ sub cron_check_syntax ($) {
 	return ($cron =~ m/^(\d|\*|-)+ (\d|\*|-)+ (\d|\*|-)+ (\d|\*|-)+ (\d|\*|-)+$/);
 }
 ###############################################################################
+# Check if a value is inside an interval.
+###############################################################################
+sub cron_check_interval {
+	my ($elem_cron, $elem_curr_time) = @_;
+
+	# Return 1 if wildcard.
+	return 1 if ($elem_cron eq "*");
+
+	my ($down, $up) = cron_get_interval($elem_cron);
+	# Check if it is not a range
+	if (!defined($up)) {
+		return ($down == $elem_curr_time) ? 1 : 0;
+	}
+
+	# Check if it is on the range
+	if ($down < $up) {
+		return 0 if ($elem_curr_time < $down || $elem_curr_time > $up);
+	} else {
+		return 0 if ($elem_curr_time > $down || $elem_curr_time < $up);
+	}
+
+	return 1;
+}
+###############################################################################
 # Get the next execution date for the given cron entry in seconds since epoch.
 ###############################################################################
-sub cron_next_execution_date ($$) {
-	my ($cron, $cur_time) = @_;
+sub cron_next_execution_date {
+	my ($cron, $cur_time, $interval) = @_;
 
 	# Get cron configuration
 	my ($min, $hour, $mday, $mon, $wday) = split (/\s/, $cron);
 
 	# Months start from 0
 	if($mon ne '*') {
-		$mon -= 1;
+		my ($mon_down, $mon_up) = cron_get_interval ($mon);
+		if (defined($mon_up)) {
+			$mon = ($mon_down - 1) . "-" . ($mon_up - 1);
+		} else {
+			$mon = $mon_down - 1;
+		}
 	}
 
 	# Get current time
 	if (! defined ($cur_time)) {
 		$cur_time = time();
 	}
-	my ($cur_min, $cur_hour, $cur_mday, $cur_mon, $cur_year) = (localtime ($cur_time))[1, 2, 3, 4, 5];
+	# Check if current time + interval is on cron too
+	my $nex_time = $cur_time + $interval;
+	my ($cur_min, $cur_hour, $cur_mday, $cur_mon, $cur_year) 
+		= (localtime ($nex_time))[1, 2, 3, 4, 5];
 	
-	# Parse intervals
-	$min = cron_get_closest_in_range ($cur_min, $min);
-	$hour = cron_get_closest_in_range ($cur_hour, $hour);
-	$mday = cron_get_closest_in_range ($cur_mday, $mday);
-	$mon = cron_get_closest_in_range ($cur_mon, $mon);
+	my @cron_array = ($min, $hour, $mday, $mon);
+	my @curr_time_array = ($cur_min, $cur_hour, $cur_mday, $cur_mon);
+	return ($nex_time) if cron_is_in_cron(\@cron_array, \@curr_time_array) == 1;
 
-	# Get first next date candidate from cron configuration
-	my ($nex_min, $nex_hour, $nex_mday, $nex_mon, $nex_year) = ($min, $hour, $mday, $mon, $cur_year);
+	# Get first next date candidate from next cron configuration
+	# Initialize some vars
+	my @nex_time_array = @curr_time_array;
 
-	# Replace wildcards
-	if ($min eq '*') {
-		if ($hour ne '*' || $mday ne '*' || $wday ne '*' || $mon ne '*') {
-			$nex_min = 0;
-		}
-		else {
-			$nex_min = $cur_min;
-		}
-	}
-	if ($hour eq '*') {
-		if ($mday ne '*' || $wday ne '*' ||$mon ne '*') {
-			$nex_hour = 0;
-		}
-		else {
-			$nex_hour = $cur_hour;
-		}
-	}
-	if ($mday eq '*') {
-		if ($mon ne '*') {
-			$nex_mday = 1;
-		}
-		else {
-			$nex_mday = $cur_mday;
-		}
-	}
-	if ($mon eq '*') {
-		$nex_mon = $cur_mon;
+	# Update minutes
+	$nex_time_array[0] = cron_get_next_time_element($min);
+
+	$nex_time = cron_valid_date(@nex_time_array, $cur_year);
+	if ($nex_time >= $cur_time) {
+		return $nex_time if cron_is_in_cron(\@cron_array, \@nex_time_array);
 	}
 
-	# Find the next execution date
-	my $count = 0;
-	do {
-		my $next_time = timelocal(0, $nex_min, $nex_hour, $nex_mday, $nex_mon, $nex_year);
-		if ($next_time > $cur_time) {
-			return $next_time;
-		}
-		if ($min eq '*' && $hour eq '*' && $wday eq '*' && $mday eq '*' && $mon eq '*') {
-			($nex_min, $nex_hour, $nex_mday, $nex_mon, $nex_year) = (localtime ($next_time + 60))[1, 2, 3, 4, 5];
-		}
-		elsif ($hour eq '*' && $wday eq '*' && $mday eq '*' && $mon eq '*') {
-			($nex_min, $nex_hour, $nex_mday, $nex_mon, $nex_year) = (localtime ($next_time + 3600))[1, 2, 3, 4, 5];
-		}
-		elsif ($mday eq '*' && $mon eq '*') {
-			($nex_min, $nex_hour, $nex_mday, $nex_mon, $nex_year) = (localtime ($next_time + 86400))[1, 2, 3, 4, 5];
-		}
-		elsif ($mon eq '*') {
-			$nex_mon = $nex_mon + 1;
-			if ($nex_mon > 11) {
-				$nex_mon = 0;
-				$nex_year++;
+	# Check if next hour is in cron
+	$nex_time_array[1]++;
+	$nex_time = cron_valid_date(@nex_time_array, $cur_year);
+
+	if ($nex_time == 0) {
+		#Update the month day if overflow
+		$nex_time_array[1] = 0;
+		$nex_time_array[2]++;
+		$nex_time = cron_valid_date(@nex_time_array, $cur_year);
+		if ($nex_time == 0) {
+			#Update the month if overflow
+			$nex_time_array[2] = 1;
+			$nex_time_array[3]++;
+			$nex_time = cron_valid_date(@nex_time_array, $cur_year);
+			if ($nex_time == 0) {
+				#Update the year if overflow
+				$cur_year++;
+				$nex_time_array[3] = 0;
+				$nex_time = cron_valid_date(@nex_time_array, $cur_year);
 			}
 		}
-		else {
-			$nex_year++;
-		}
-		$count++;
-	} while ($count < 60);
-	
-	# Something went wrong, default to 5 minutes
-	return $cur_time + 300;
-}
+	}
+	#Check the hour
+	return $nex_time if cron_is_in_cron(\@cron_array, \@nex_time_array);
 
+	#Update the hour if fails
+	$nex_time_array[1] = cron_get_next_time_element($hour);
+
+	# When an overflow is passed check the hour update again
+	$nex_time = cron_valid_date(@nex_time_array, $cur_year);
+	if ($nex_time >= $cur_time) {
+		return $nex_time if cron_is_in_cron(\@cron_array, \@nex_time_array);
+	}
+
+	# Check if next day is in cron
+	$nex_time_array[2]++;
+	$nex_time = cron_valid_date(@nex_time_array, $cur_year);
+	if ($nex_time == 0) {
+		#Update the month if overflow
+		$nex_time_array[2] = 1;
+		$nex_time_array[3]++;
+		$nex_time = cron_valid_date(@nex_time_array, $cur_year);
+		if ($nex_time == 0) {
+			#Update the year if overflow
+			$nex_time_array[3] = 0;
+			$cur_year++;
+			$nex_time = cron_valid_date(@nex_time_array, $cur_year);
+		}
+	}
+	#Check the day
+	return $nex_time if cron_is_in_cron(\@cron_array, \@nex_time_array);
+	
+	#Update the day if fails
+	$nex_time_array[2] = cron_get_next_time_element($mday, 1);
+
+	# When an overflow is passed check the hour update in the next execution
+	$nex_time = cron_valid_date(@nex_time_array, $cur_year);
+	if ($nex_time >= $cur_time) {
+		return $nex_time if cron_is_in_cron(\@cron_array, \@nex_time_array);
+	}
+
+	# Check if next month is in cron
+	$nex_time_array[3]++;
+	$nex_time = cron_valid_date(@nex_time_array, $cur_year);
+	if ($nex_time == 0) {
+		#Update the year if overflow
+		$nex_time_array[3] = 0;
+		$cur_year++;
+		$nex_time = cron_valid_date(@nex_time_array, $cur_year);
+	}
+
+	#Check the month
+	return $nex_time if cron_is_in_cron(\@cron_array, \@nex_time_array);
+
+	#Update the month if fails
+	$nex_time_array[3] = cron_get_next_time_element($mon);
+
+	# When an overflow is passed check the hour update in the next execution
+	$nex_time = cron_valid_date(@nex_time_array, $cur_year);
+	if ($nex_time >= $cur_time) {
+		return $nex_time if cron_is_in_cron(\@cron_array, \@nex_time_array);
+	}
+
+	$nex_time = cron_valid_date(@nex_time_array, $cur_year + 1);
+
+	return $nex_time;
+}
+###############################################################################
+# Returns if a date is in a cron. Recursive.
+# Needs the cron like an array reference and
+# current time in cron format to works properly
+###############################################################################
+sub cron_is_in_cron {
+	my ($elems_cron, $elems_curr_time) = @_;
+
+	my @deref_elems_cron = @$elems_cron;
+	my @deref_elems_curr_time = @$elems_curr_time;
+	
+	my $elem_cron = shift(@deref_elems_cron);
+	my $elem_curr_time = shift (@deref_elems_curr_time);
+
+	#If there is no elements means that is in cron
+	return 1 unless (defined($elem_cron) || defined($elem_curr_time));
+
+	# Check the element interval
+	return 0 unless (cron_check_interval($elem_cron, $elem_curr_time));
+
+	return cron_is_in_cron(\@deref_elems_cron, \@deref_elems_curr_time);
+}
+################################################################################
+#Get the next tentative time for a cron value or interval in case of overflow.
+#Floor data is the minimum localtime data for a position. Ex: 
+#Ex:
+#     * should returns floor data.
+#     5 should returns 5.
+#     10-55 should returns 10.
+#     55-10 should retunrs floor data.
+################################################################################
+sub cron_get_next_time_element {
+	# Default floor data is 0
+	my ($curr_element, $floor_data) = @_;
+	$floor_data = 0 unless defined($floor_data);
+
+	my ($elem_down, $elem_up) = cron_get_interval ($curr_element);
+	return ($elem_down eq '*' || (defined($elem_up) && $elem_down > $elem_up))
+		? $floor_data
+		: $elem_down;
+}
+###############################################################################
+# Returns the interval of a cron element. If there is not a range,
+# returns an array with the first element in the first place of array
+# and the second place undefined.
+###############################################################################
+sub cron_get_interval {
+	my ($element) = @_;
+
+	# Not a range
+	if ($element !~ /(\d+)\-(\d+)/) {
+		return ($element, undef);
+	}
+	
+	return ($1, $2);
+}
 ###############################################################################
 # Returns the closest number to the target inside the given range (including
 # the target itself).
@@ -1386,6 +1687,22 @@ sub cron_get_closest_in_range ($$) {
 	
 	# Inside the range
 	return $target;
+}
+
+###############################################################################
+# Check if a date is valid to get timelocal
+###############################################################################
+sub cron_valid_date {
+	my ($min, $hour, $mday, $month, $year) = @_;
+	my $utime;
+	eval {
+		local $SIG{__DIE__} = sub {};
+		$utime = timelocal(0, $min, $hour, $mday, $month, $year);
+	};
+	if ($@) {
+		return 0;
+	}
+	return $utime;
 }
 
 ###############################################################################
@@ -1424,13 +1741,350 @@ sub valid_regex ($) {
 sub is_metaconsole ($) {
 	my ($pa_config) = @_;
 
-	if (defined($pa_config->{"license_type"}) && $pa_config->{"license_type"} == METACONSOLE_LICENSE) {
+	if (defined($pa_config->{"license_type"}) &&
+		($pa_config->{"license_type"} & METACONSOLE_LICENSE) &&
+		$pa_config->{"node_metaconsole"} == 0) {
 		return 1;
 	}
 
 	return 0;
 }
 
+###############################################################################
+# Returns 1 if a valid offline license is configured, 0 otherwise.
+###############################################################################
+sub is_offline ($) {
+	my ($pa_config) = @_;
+
+	if (defined($pa_config->{"license_type"}) &&
+		($pa_config->{"license_type"} & OFFLINE_LICENSE)) {
+		return 1;
+	}
+
+	return 0;
+}
+
+###############################################################################
+# Check if a given variable contents a number
+###############################################################################
+sub to_number($) {
+	my $n = shift;
+	if ($n =~ /[\d+,]*\d+\.\d+/) {
+		# American notation
+		$n =~ s/,//g;
+	}
+	elsif ($n =~ /[\d+\.]*\d+,\d+/) {
+		# Spanish notation
+		$n =~ s/\.//g;
+		$n =~ s/,/./g;
+	}
+	if(looks_like_number($n)) {
+		return $n;
+	}
+	return undef;
+}
+
+#######################
+# ENCODE
+#######################
+sub uri_encode {
+    # Un-reserved characters
+    my $unreserved_re = qr{ ([^a-zA-Z0-9\Q-_.~\E\%]) }x;
+    my $enc_map       = { ( map { chr($_) => sprintf( "%%%02X", $_ ) } ( 0 ... 255 ) ) };
+    my $dec_map       = { ( map { sprintf( "%02X", $_ ) => chr($_) } ( 0 ... 255 ) ) };
+
+    my ($data) = @_;
+
+    # Check for data
+    # Allow to be '0'
+    return unless defined $data;
+
+    # UTF-8 encode
+    $data = Encode::encode( 'utf-8-strict', $data );
+
+    # Encode a literal '%'
+    $data =~ s{(\%)(.*)}{uri_encode_literal_percent($1, $2, $enc_map, $dec_map)}gex;
+
+    # Percent Encode
+    $data =~ s{$unreserved_re}{uri_encode_get_encoded_char($1, $enc_map)}gex;
+
+    # Done
+  return $data;
+} ## end sub encode
+
+#######################
+# INTERNAL
+#######################
+sub uri_encode_get_encoded_char($$) {
+    my ( $char, $enc_map ) = @_;
+
+  return $enc_map->{$char} if exists $enc_map->{$char};
+  return $char;
+} ## end sub uri_encode_get_encoded_char
+
+sub uri_encode_literal_percent {
+    my ( $char, $post, $enc_map, $dec_map ) = @_;
+
+  return uri_encode_get_encoded_char($char, $enc_map) if not defined $post;
+
+    my $return_char;
+    if ( $post =~ m{^([a-fA-F0-9]{2})}x ) {
+        if ( exists $dec_map->{$1} ) {
+            $return_char = join( '', $char, $post );
+        }
+    } ## end if ( $post =~ m{^([a-fA-F0-9]{2})}x)
+
+    $return_char ||= join( '', uri_encode_get_encoded_char($char, $enc_map), $post );
+  return $return_char;
+} ## end sub uri_encode_literal_percent
+
+
+################################################################################
+# Launch API call
+################################################################################
+sub api_call_url {
+	my ($pa_config, $server_url, $api_params, @options) = @_;
+	
+
+	my $ua = LWP::UserAgent->new();
+	$ua->timeout($pa_config->{'tcp_timeout'});
+	# Enable environmental proxy settings
+	$ua->env_proxy;
+	# Enable in-memory cookie management
+	$ua->cookie_jar( {} );
+	
+	# Disable verify host certificate (only needed for self-signed cert)
+	$ua->ssl_opts( 'verify_hostname' => 0 );
+	$ua->ssl_opts( 'SSL_verify_mode' => 0x00 );
+
+	my $response;
+
+	eval {
+		$response = $ua->post($server_url, $api_params, @options);
+	};
+	if ((!$@) && $response->is_success) {
+		return $response->decoded_content;
+	}
+	return undef;
+}
+
+################################################################################
+# Start a server thread and keep track of it.
+################################################################################
+sub start_server_thread {
+	my ($fn, $args) = @_;
+
+	# Signal the threads to run.
+	$THRRUN = 1;
+
+	my $thr = threads->create($fn, @{$args});
+	push(@ServerThreads, $thr);
+}
+
+################################################################################
+# Check the status of server threads. Returns 1 if all all running, 0 otherwise.
+################################################################################
+sub check_server_threads {
+	my ($fn, $args) = @_;
+
+	foreach my $thr (@ServerThreads) {
+		return 0 unless $thr->is_running();
+	}
+
+	return 1;
+}
+
+################################################################################
+# Stop all server threads.
+################################################################################
+sub stop_server_threads {
+	my ($fn, $args) = @_;
+
+	# Signal the threads to exits.
+	$THRRUN = 0;
+
+	foreach my $thr (@ServerThreads) {
+			$thr->join();
+	}
+
+	@ServerThreads = ();
+}
+
+################################################################################
+# Generate random hash as agent name.
+################################################################################
+sub generate_agent_name_hash {
+	my ($agent_alias, $server_ip) = @_;
+	return sha256(join('|', ($agent_alias, $server_ip, time(), sprintf("%04d", rand(10000)))));
+}
+
+###############################################################################
+# Return the SHA256 checksum of the given string as a hex string.
+# Pseudocode from: http://en.wikipedia.org/wiki/SHA-2#Pseudocode
+###############################################################################
+my @K2 = (
+	0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
+	0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+	0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
+	0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+	0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
+	0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+	0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+	0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+	0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
+	0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+	0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+);
+sub sha256 {
+	my $str = shift;
+
+	# No input!
+	if (!defined($str)) {
+		return "";
+	}
+
+	# Note: All variables are unsigned 32 bits and wrap modulo 2^32 when
+	# calculating.
+
+	# First 32 bits of the fractional parts of the square roots of the first 8
+	# primes.
+	my $h0 = 0x6a09e667;
+	my $h1 = 0xbb67ae85;
+	my $h2 = 0x3c6ef372;
+	my $h3 = 0xa54ff53a;
+	my $h4 = 0x510e527f;
+	my $h5 = 0x9b05688c;
+	my $h6 = 0x1f83d9ab;
+	my $h7 = 0x5be0cd19;
+
+	# Pre-processing.
+	my $msg = unpack ("B*", pack ("A*", $str));
+	my $bit_len = length ($msg);
+
+	# Append "1" bit to message.
+	$msg .= '1';
+
+	# Append "0" bits until message length in bits = 448 (mod 512).
+	$msg .= '0' while ((length ($msg) % 512) != 448);
+
+	# Append bit /* bit, not byte */ length of unpadded message as 64-bit
+	# big-endian integer to message.
+	$msg .= unpack ("B32", pack ("N", $bit_len >> 32));
+	$msg .= unpack ("B32", pack ("N", $bit_len));
+
+	# Process the message in successive 512-bit chunks.
+	for (my $i = 0; $i < length ($msg); $i += 512) {
+
+		my @w;
+		my $chunk = substr ($msg, $i, 512);
+
+		# Break chunk into sixteen 32-bit big-endian words.
+		for (my $j = 0; $j < length ($chunk); $j += 32) {
+			push (@w, unpack ("N", pack ("B32", substr ($chunk, $j, 32))));
+		}
+
+		# Extend the first 16 words into the remaining 48 words w[16..63] of the message schedule array:
+		for (my $i = 16; $i < 64; $i++) {
+			my $s0 = rightrotate($w[$i - 15], 7) ^ rightrotate($w[$i - 15], 18) ^ ($w[$i - 15] >> 3);
+			my $s1 = rightrotate($w[$i - 2], 17) ^ rightrotate($w[$i - 2], 19) ^ ($w[$i - 2] >> 10);
+			$w[$i] = ($w[$i - 16] + $s0 + $w[$i - 7] + $s1) % POW232;
+		}
+
+		# Initialize working variables to current hash value.
+		my $a = $h0;
+		my $b = $h1;
+		my $c = $h2;
+		my $d = $h3;
+		my $e = $h4;
+		my $f = $h5;
+		my $g = $h6;
+		my $h = $h7;
+
+		# Compression function main loop.
+		for (my $i = 0; $i < 64; $i++) {
+			my $S1 = rightrotate($e, 6) ^ rightrotate($e, 11) ^ rightrotate($e, 25);
+			my $ch = ($e & $f) ^ ((0xFFFFFFFF & (~ $e)) & $g);
+			my $temp1 = ($h + $S1 + $ch + $K2[$i] + $w[$i]) % POW232;
+			my $S0 = rightrotate($a, 2) ^ rightrotate($a, 13) ^ rightrotate($a, 22);
+			my $maj = ($a & $b) ^ ($a & $c) ^ ($b & $c);
+			my $temp2 = ($S0 + $maj) % POW232;
+
+			$h = $g;
+			$g = $f;
+			$f = $e;
+			$e = ($d + $temp1) % POW232;
+			$d = $c;
+			$c = $b;
+			$b = $a;
+			$a = ($temp1 + $temp2) % POW232;
+		}
+
+		# Add the compressed chunk to the current hash value.
+		$h0 = ($h0 + $a) % POW232;
+		$h1 = ($h1 + $b) % POW232;
+		$h2 = ($h2 + $c) % POW232;
+		$h3 = ($h3 + $d) % POW232;
+		$h4 = ($h4 + $e) % POW232;
+		$h5 = ($h5 + $f) % POW232;
+		$h6 = ($h6 + $g) % POW232;
+		$h7 = ($h7 + $h) % POW232;
+	}
+
+	# Produce the final hash value (big-endian).
+	return unpack ("H*", pack ("N", $h0)) .
+	       unpack ("H*", pack ("N", $h1)) .
+	       unpack ("H*", pack ("N", $h2)) .
+	       unpack ("H*", pack ("N", $h3)) .
+	       unpack ("H*", pack ("N", $h4)) .
+	       unpack ("H*", pack ("N", $h5)) .
+	       unpack ("H*", pack ("N", $h6)) .
+	       unpack ("H*", pack ("N", $h7));
+}
+
+###############################################################################
+# Rotate a 32-bit number a number of bits to the right.
+###############################################################################
+sub rightrotate {
+	my ($x, $c) = @_;
+
+	return (0xFFFFFFFF & ($x << (32 - $c))) | ($x >> $c);
+}
+
+###############################################################################
+# Returns IP address(v4) in longint format
+###############################################################################
+sub ip_to_long {
+	my $ip_str = shift;
+	return unpack "N", inet_aton($ip_str);
+}
+
+###############################################################################
+# Returns IP address(v4) in longint format
+###############################################################################
+sub long_to_ip {
+	my $ip_long = shift;
+	return inet_ntoa pack("N", ($ip_long));
+}
+
+###############################################################################
+# Returns a list with enabled servers.
+###############################################################################
+sub get_enabled_servers {
+	my $conf = shift;
+
+	if (ref($conf) ne "HASH") {
+		return ();
+	}
+
+	my @server_list = map {
+		if ($_ =~ /server$/i && $conf->{$_} > 0) {
+			$_
+		} else {
+		}
+	} keys %{$conf};
+
+	return @server_list;
+}
 # End of function declaration
 # End of defined Code
 

@@ -1,10 +1,10 @@
 <?php
 /*
-* @package Include/help/es
-*/
+ * @package Include/help/es
+ */
 ?>
 
-<h1>Alerta correlacion</h1>
+<h1>Alerta correlaci&oacute;n</h1>
 
-<p>Permite usar mas de un modulo para generar una reaccion en Pandora FMS. Dichos modulos pueden pertenecer a un mismo agente o a varios.</p>
+<p>Permite usar m&aacute;s de un m&oacute;dulo para generar una reacci&oacute;n en <?php echo get_product_name(); ?>. Dichos m&oacute;dulos pueden pertenecer a un mismo agente o a varios.</p>
 

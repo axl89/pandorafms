@@ -20,6 +20,8 @@ package PandoraFMS::DB;
 use strict;
 use warnings;
 use DBI;
+
+use lib '/usr/lib/perl5';
 use PandoraFMS::Tools;
 
 #use Data::Dumper;
@@ -34,12 +36,15 @@ our @EXPORT = qw(
 		add_new_address_agent
 		db_concat
 		db_connect
+		db_history_connect
 		db_delete_limit
 		db_disconnect
 		db_do
 		db_get_lock
 		db_insert
 		db_insert_get_values
+		db_insert_from_array_hash
+		db_insert_from_hash
 		db_process_insert
 		db_process_update
 		db_release_lock
@@ -47,16 +52,19 @@ our @EXPORT = qw(
 		db_text
 		db_update
 		db_update_get_values
+		set_update_agent
 		get_action_id
 		get_addr_id
 		get_agent_addr_id
 		get_agent_id
 		get_agent_address
+		get_agent_alias
 		get_agent_group
 		get_agent_name
 		get_agent_module_id
 		get_alert_template_module_id
 		get_alert_template_name
+		get_command_id
 		get_db_rows
 		get_db_rows_limit
 		get_db_single_row
@@ -72,6 +80,7 @@ our @EXPORT = qw(
 		get_module_name
 		get_nc_profile_name
 		get_os_id
+		get_os_name
 		get_plugin_id
 		get_profile_id
 		get_priority_name
@@ -125,9 +134,6 @@ sub db_connect ($$$$$$) {
 		# Enable character semantics
 		$dbh->{'mysql_enable_utf8'} = 1;
 		
-        # Tell the server to return UTF-8 strings.
-		$dbh->do("SET NAMES 'utf8';") if ($^O eq 'MSWin32');
-
 		return $dbh;
 	}
 	elsif ($rdbms eq 'postgresql') {
@@ -165,6 +171,28 @@ sub db_connect ($$$$$$) {
 	return undef;
 }
 
+##########################################################################
+## Connect to a history DB associated to given dbh.
+##########################################################################
+sub db_history_connect {
+	my ($dbh, $pa_config) = @_;
+
+	my %conf;
+
+	$conf{'history_db_enabled'} = get_db_value ($dbh, "SELECT value FROM tconfig WHERE token = ?", "history_db_enabled");
+	$conf{'history_db_host'}    = get_db_value ($dbh, "SELECT value FROM tconfig WHERE token = ?", "history_db_host");
+	$conf{'history_db_port'}    = get_db_value ($dbh, "SELECT value FROM tconfig WHERE token = ?", "history_db_port");
+	$conf{'history_db_name'}    = get_db_value ($dbh, "SELECT value FROM tconfig WHERE token = ?", "history_db_name");
+	$conf{'history_db_user'}    = get_db_value ($dbh, "SELECT value FROM tconfig WHERE token = ?", "history_db_user");
+	$conf{'history_db_pass'}    = get_db_value ($dbh, "SELECT value FROM tconfig WHERE token = ?", "history_db_pass");
+
+	my $history_dbh = ($conf{'history_db_enabled'} eq '1') ? db_connect ($pa_config->{'dbengine'}, $conf{'history_db_name'},
+		$conf{'history_db_host'}, $conf{'history_db_port'}, $conf{'history_db_user'}, $conf{'history_db_pass'}) : undef;
+
+
+	return $history_dbh;
+}
+
 ########################################################################
 ## Disconnect from the DB. 
 ########################################################################
@@ -185,6 +213,16 @@ sub get_action_id ($$) {
 }
 
 ########################################################################
+## Return command ID given the command name.
+########################################################################
+sub get_command_id ($$) {
+	my ($dbh, $command_name) = @_;
+
+	my $rc = get_db_value ($dbh, "SELECT id FROM talert_commands WHERE name = ?", safe_input($command_name));
+	return defined ($rc) ? $rc : -1;
+}
+
+########################################################################
 ## Return agent ID given the agent name.
 ########################################################################
 sub get_agent_id ($$) {
@@ -201,7 +239,7 @@ sub get_server_id ($$$) {
 	my ($dbh, $server_name, $server_type) = @_;
 
 	my $rc = get_db_value ($dbh, "SELECT id_server FROM tserver
-					WHERE name = ? AND server_type = ?",
+					WHERE BINARY name = ? AND server_type = ?",
 					$server_name, $server_type);
 	return defined ($rc) ? $rc : -1;
 }
@@ -249,6 +287,16 @@ sub get_os_id ($$) {
 	return defined ($rc) ? $rc : -1;
 }
 
+########################################################################
+## Return OS name given the OS id.
+########################################################################
+sub get_os_name ($$) {
+	my ($dbh, $os_id) = @_;
+
+	my $rc = get_db_value ($dbh, "SELECT name FROM tconfig_os WHERE id_os = ?", $os_id);
+	return defined ($rc) ? $rc : -1;
+}
+
 ##########################################################################
 ## SUB get_agent_name (agent_id)
 ## Return agent group id, given "agent_id"
@@ -272,6 +320,18 @@ sub get_agent_name ($$) {
 	my ($dbh, $agent_id) = @_;
 	
 	return get_db_value ($dbh, "SELECT nombre
+		FROM tagente
+		WHERE id_agente = ?", $agent_id);
+}
+
+########################################################################
+## SUB get_agent_alias (agent_id)
+## Return agent alias, given "agent_id"
+########################################################################
+sub get_agent_alias ($$) {
+	my ($dbh, $agent_id) = @_;
+	
+	return get_db_value ($dbh, "SELECT alias
 		FROM tagente
 		WHERE id_agente = ?", $agent_id);
 }
@@ -753,6 +813,35 @@ sub get_db_rows_limit ($$$;@) {
 }
 
 ##########################################################################
+## Updates agent fields using field => value
+##  Be careful, no filter is done.
+##########################################################################
+sub set_update_agent {
+	my ($dbh, $agent_id, $data) = @_;
+
+	return undef unless (defined($agent_id) && $agent_id > 0);
+	return undef unless (ref($data) eq "HASH");
+
+	# Build update query
+	my $query = 'UPDATE tagente SET ';
+
+	my @values;
+	foreach my $field (keys %{$data}) {
+		push @values, $data->{$field};
+
+		$query .= ' ' . $field . ' = ?,';
+	}
+
+	chop($query);
+
+	$query .= ' WHERE id_agente = ? ';
+	push @values, $agent_id;
+
+	return db_update($dbh, $query, @values);
+}
+
+
+##########################################################################
 ## SQL delete with a LIMIT clause.
 ##########################################################################
 sub db_delete_limit ($$$$;@) {
@@ -781,25 +870,20 @@ sub db_delete_limit ($$$$;@) {
 sub db_insert ($$$;@) {
 	my ($dbh, $index, $query, @values) = @_;
 	my $insert_id = undef;
-	
-	
-	# MySQL
-	if ($RDBMS eq 'mysql') {
+
+	eval {	
 		$dbh->do($query, undef, @values);
 		$insert_id = $dbh->{'mysql_insertid'};
-	}
-	# PostgreSQL
-	elsif ($RDBMS eq 'postgresql') {
-		$insert_id = get_db_value ($dbh, $query . ' RETURNING ' . $RDBMS_QUOTE . $index . $RDBMS_QUOTE, @values); 
-	}
-	# Oracle
-	elsif ($RDBMS eq 'oracle') {
-		my $sth = $dbh->prepare($query . ' RETURNING ' . $RDBMS_QUOTE . (uc ($index)) . $RDBMS_QUOTE . ' INTO ?');
-		for (my $i = 0; $i <= $#values; $i++) {
-			$sth->bind_param ($i+1, $values[$i]);
+	};
+	if ($@) {
+		my $exception = @_;
+		if ($DBI::err == 1213 || $DBI::err == 1205) {
+			$dbh->do($query, undef, @values);
+			$insert_id = $dbh->{'mysql_insertid'};
 		}
-		$sth->bind_param_inout($#values + 2, \$insert_id, 99);
-		$sth->execute ();
+		else {
+			die($exception);
+		}
 	}
 	
 	return $insert_id;
@@ -810,8 +894,20 @@ sub db_insert ($$$;@) {
 ##########################################################################
 sub db_update ($$;@) {
 	my ($dbh, $query, @values) = @_;
-	
-	my $rows = $dbh->do($query, undef, @values);
+	my $rows;
+
+	eval {
+		$rows = $dbh->do($query, undef, @values);
+	};
+	if ($@) {
+		my $exception = @_;
+		if ($DBI::err == 1213 || $DBI::err == 1205) {
+			$rows = $dbh->do($query, undef, @values);
+		}
+		else {
+			die($exception);
+		}
+	}
 	
 	return $rows;
 }
@@ -867,6 +963,60 @@ sub db_process_insert($$$$;@) {
 	
 	
 	return $res;
+}
+
+########################################################################
+## SQL insert from hash
+## 1st: dbh
+## 2nd: index
+## 3rd: table name,
+## 4th: {field => value} ref
+########################################################################
+sub db_insert_from_hash {
+	my ($dbh, $index, $table, $data) = @_;
+
+	my $values_prep = "";
+	my @fields = keys %{$data};
+	my @values = values %{$data};
+	my $nfields = scalar @fields;
+
+	for (my $i=0; $i<$nfields; $i++) {
+		$values_prep .= "?,";
+	}
+	$values_prep =~ s/,$//;
+
+	return db_insert($dbh, $index, "INSERT INTO " . $table . " (" . join (",", @fields) . ") VALUES ($values_prep)", @values);
+}
+
+########################################################################
+## SQL insert from hash
+## 1st: dbh
+## 2nd: index
+## 3rd: table name,
+## 4th: array({field => value},{field => value}) array ref
+## 
+## Returns: An array with the inserted indexes
+########################################################################
+sub db_insert_from_array_hash {
+	my ($dbh, $index, $table, $data) = @_;
+
+	if ((!defined($data) || ref ($data) ne "ARRAY")) {
+		return ();
+	}
+
+
+	my @inserted_keys;
+
+	eval {
+		foreach my $row (@{$data}) {
+			push @inserted_keys, db_insert_from_hash($dbh, $index, $table, $row);
+		}
+	};
+	if ($@) {
+		return undef;
+	}
+
+	return @inserted_keys;
 }
 
 ########################################################################
@@ -992,7 +1142,18 @@ sub db_do ($$;@) {
 	my ($dbh, $query, @values) = @_;
 	
 	#DBI->trace( 3, '/tmp/dbitrace.log' );
-	$dbh->do($query, undef, @values);
+	eval {
+		$dbh->do($query, undef, @values);
+	};
+	if ($@) {
+		my $exception = @_;
+		if ($DBI::err == 1213 || $DBI::err == 1205) {
+			$dbh->do($query, undef, @values);
+		}
+		else {
+			die($exception);
+		}
+	}
 }
 
 ########################################################################

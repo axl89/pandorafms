@@ -31,6 +31,7 @@
 #include "pandora_module_cpuusage.h"
 #include "pandora_module_inventory.h"
 #include "pandora_module_logevent.h"
+#include "pandora_module_logchannel.h"
 #include "pandora_module_wmiquery.h"
 #include "pandora_module_perfcounter.h"
 #include "pandora_module_tcpcheck.h"
@@ -38,6 +39,7 @@
 #include "pandora_module_plugin.h"
 #include "pandora_module_ping.h"
 #include "pandora_module_snmpget.h"
+#include "../windows/pandora_wmi.h"
 #include "../pandora_strutils.h"
 #include <list>
 
@@ -68,6 +70,7 @@ using namespace Pandora_Strutils;
 #define TOKEN_MIN_FF_EVENT  ("module_min_ff_event ")
 #define TOKEN_DESCRIPTION   ("module_description ")
 #define TOKEN_LOGEVENT      ("module_logevent")
+#define TOKEN_LOGCHANNEL    ("module_logchannel")
 #define TOKEN_SOURCE        ("module_source ")
 #define TOKEN_EVENTTYPE     ("module_eventtype ")
 #define TOKEN_EVENTCODE     ("module_eventcode ")
@@ -91,7 +94,6 @@ using namespace Pandora_Strutils;
 #define TOKEN_SAVE          ("module_save ")
 #define TOKEN_CONDITION     ("module_condition ")
 #define TOKEN_CRONTAB       ("module_crontab ")
-#define TOKEN_CRONINTERVAL  ("module_cron_interval ")
 #define TOKEN_PRECONDITION  ("module_precondition ")
 #define TOKEN_NOSEEKEOF     ("module_noseekeof ")
 #define TOKEN_PING          ("module_ping ")
@@ -117,9 +119,11 @@ using namespace Pandora_Strutils;
 #define TOKEN_WARNING_INVERSE ("module_warning_inverse ")
 #define TOKEN_QUIET ("module_quiet ")
 #define TOKEN_MODULE_FF_INTERVAL ("module_ff_interval ")
+#define TOKEN_MODULE_FF_TYPE ("module_ff_type ")
 #define TOKEN_MACRO ("module_macro")
 #define TOKEN_NATIVE_ENCODING ("module_native_encoding")
 #define TOKEN_ALERT_TEMPLATE ("module_alert_template")
+#define TOKEN_USER_SESSION ("module_user_session ")
 	
 string
 parseLine (string line, string token) {
@@ -156,14 +160,15 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 	string                 module_freedisk_percent, module_freememory_percent;
 	string                 module_dsn, module_freememory;
 	string                 module_logevent, module_source, module_eventtype, module_eventcode;
+	string                 module_logchannel;
 	string                 module_pattern, module_application, module_async;
-	string                 module_watchdog, module_start_command;
+	string                 module_watchdog, module_start_command, module_user_session;
 	string                 module_wmiquery, module_wmicolumn;
 	string                 module_retries, module_startdelay, module_retrydelay;
 	string                 module_perfcounter, module_tcpcheck;
 	string                 module_port, module_timeout, module_regexp;
 	string                 module_plugin, module_save, module_condition, module_precondition;
-	string                 module_crontab, module_cron_interval, module_post_process;
+	string                 module_crontab, module_post_process;
 	string                 module_min_critical, module_max_critical, module_min_warning, module_max_warning;
 	string                 module_disabled, module_min_ff_event, module_noseekeof;
 	string                 module_ping, module_ping_count, module_ping_timeout;
@@ -172,7 +177,7 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 	string                 module_unit, module_group, module_custom_id, module_str_warning, module_str_critical;
 	string                 module_critical_instructions, module_warning_instructions, module_unknown_instructions, module_tags;
 	string                 module_critical_inverse, module_warning_inverse, module_quiet, module_ff_interval;
-	string				   module_native_encoding, module_alert_template;
+	string                 module_native_encoding, module_alert_template, module_ff_type;
 	string                 macro;
 	Pandora_Module        *module;
 	bool                   numeric;
@@ -194,6 +199,7 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 	module_proc          = "";
 	module_service       = "";
 	module_logevent      = "";
+	module_logchannel    = "";
 	module_source        = "";
 	module_eventtype     = "";
 	module_eventcode     = "";
@@ -216,7 +222,6 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 	module_save          = "";
 	module_condition     = "";
 	module_crontab       = "";
-	module_cron_interval = "";
 	module_post_process  = "";
 	module_precondition  = "";
 	module_min_critical  = "";
@@ -250,8 +255,10 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 	module_warning_inverse = "";
 	module_quiet         = "";
 	module_ff_interval   = "";
+	module_ff_type   = "";
 	module_native_encoding	 = "";
 	module_alert_template	 = "";
+	module_user_session	 = "";
 	macro   = "";
     
 	stringtok (tokens, definition, "\n");
@@ -341,6 +348,9 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 		if (module_logevent == "") {
 			module_logevent = parseLine (line, TOKEN_LOGEVENT);
 		}
+		if (module_logchannel == "") {
+			module_logchannel = parseLine (line, TOKEN_LOGCHANNEL);
+		}
 		if (module_source == "") {
 			module_source = parseLine (line, TOKEN_SOURCE);
 		}
@@ -412,9 +422,6 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 		}
 		if (module_crontab == "") {
 			module_crontab = parseLine (line, TOKEN_CRONTAB);
-		}
-		if (module_cron_interval == "") {
-			module_cron_interval = parseLine (line, TOKEN_CRONINTERVAL);
 		}
 		if (module_noseekeof == "") {
 			module_noseekeof = parseLine (line, TOKEN_NOSEEKEOF);
@@ -502,10 +509,18 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 		if (module_ff_interval == "") {
 			module_ff_interval = parseLine (line, TOKEN_MODULE_FF_INTERVAL);
 		}
+
+		if (module_ff_type == "") {
+			module_ff_type = parseLine (line, TOKEN_MODULE_FF_TYPE);
+		}
 		
 		if (module_alert_template == "") {
 			module_alert_template = parseLine (line, TOKEN_ALERT_TEMPLATE);
 			module_alert_template.erase (0,1);
+		}		
+		
+		if (module_user_session == "") {
+			module_user_session = parseLine (line, TOKEN_USER_SESSION);
 		}
 		
 		if (macro == "") {
@@ -723,6 +738,13 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 					}
 				}
 
+				if (module_logchannel != "") {
+					pos_macro = module_logchannel.find(macro_name);
+					if (pos_macro != string::npos){
+						module_logchannel.replace(pos_macro, macro_name.size(), macro_value);
+					}
+				}
+
 				if (module_source != "") {
 					pos_macro = module_source.find(macro_name);
 					if (pos_macro != string::npos){
@@ -880,13 +902,6 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 					pos_macro = module_crontab.find(macro_name);
 					if (pos_macro != string::npos){
 						module_crontab.replace(pos_macro, macro_name.size(), macro_value);
-					}
-				}
-
-				if (module_cron_interval != "") {
-					pos_macro = module_cron_interval.find(macro_name);
-					if (pos_macro != string::npos){
-						module_cron_interval.replace(pos_macro, macro_name.size(), macro_value);
 					}
 				}
 
@@ -1078,14 +1093,34 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 					}
 				}
 
+				if (module_ff_type != "") {
+					pos_macro = module_ff_type.find(macro_name);
+					if (pos_macro != string::npos){
+						module_ff_type.replace(pos_macro, macro_name.size(), macro_value);
+					}
+				}
+
 				if (module_alert_template != "") {
 					pos_macro = module_alert_template.find(macro_name);
 					if (pos_macro != string::npos){
 						module_alert_template.replace(pos_macro, macro_name.size(), macro_value);
 					}
 				}
+
+				if (module_user_session != "") {
+					pos_macro = module_user_session.find(macro_name);
+					if (pos_macro != string::npos){
+						module_user_session.replace(pos_macro, macro_name.size(), macro_value);
+					}
+				}
 			}
 		}
+	}
+
+	/* Skip disabled modules */
+	if (module_disabled == "1") {
+		pandoraLog ("Skipping disabled module \"%s\"", module_name.c_str ());
+		return NULL;
 	}
 
 	/* Create module objects */
@@ -1120,6 +1155,7 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 				module_proc->setRetries (atoi(module_retries.c_str ()));
 				module_proc->setStartDelay (atoi(module_startdelay.c_str ()));
 				module_proc->setRetryDelay (atoi(module_retrydelay.c_str ()));
+				module_proc->setUserSession (is_enabled(module_user_session));
 			}
 		}
 	} else if (module_service != "") {
@@ -1137,6 +1173,16 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 	} else if (module_freedisk_percent != "") {
 		module = new Pandora_Module_Freedisk_Percent (module_name,
 						      module_freedisk_percent);
+		// Added a description with the memory free
+		try {
+			char buffer[100];
+			unsigned long memory = Pandora_Wmi::getDiskFreeSpace(module_freedisk_percent);
+			if (sprintf(buffer, "Free space on drive %s %dMB",
+				module_freedisk_percent.c_str(), memory) > 0) {
+				module->setDescription(buffer);
+			}
+		} catch (Pandora_Wmi::Pandora_Wmi_Exception e) {
+		}
 	} else if (module_freememory != "") {
 		module = new Pandora_Module_Freememory (module_name);
 	} else if (module_freememory_percent != "") {
@@ -1157,6 +1203,14 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 		module = new Pandora_Module_Inventory (module_name, module_inventory);
 	} else if (module_logevent != "") {
 		module = new Pandora_Module_Logevent (module_name,
+						      module_source,
+						      module_eventtype,
+						      module_eventcode,
+						      module_pattern,
+						      module_application);
+	}
+	else if (module_logchannel != "") {
+		module = new Pandora_Module_Logchannel (module_name,
 						      module_source,
 						      module_eventtype,
 						      module_eventcode,
@@ -1273,14 +1327,7 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 	}
 
 	/* Module cron */
-	if (module_crontab != "") {
-		module->setCron (module_crontab);
-		
-		/* Set the cron interval */
-		if (module_cron_interval != "") {
-			module->setCronInterval (atoi (module_cron_interval.c_str ()));
-		}
-	}
+	module->setCron (module_crontab);
 
 	/* Plugins do not have a module type */
 	if (module_plugin == "") {
@@ -1288,6 +1335,7 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 		switch (type) {
 		case TYPE_GENERIC_DATA:
 		case TYPE_GENERIC_DATA_INC:
+		case TYPE_GENERIC_DATA_INC_ABS:
 		case TYPE_GENERIC_PROC:
 		case TYPE_ASYNC_DATA:
 		case TYPE_ASYNC_PROC:
@@ -1418,6 +1466,10 @@ Pandora_Module_Factory::getModuleFromDefinition (string definition) {
 	
 	if (module_ff_interval != "") {
 		module->setModuleFFInterval (module_ff_interval);
+	}
+
+	if (module_ff_type != "") {
+		module->setModuleFFType (module_ff_type);
 	}
 	
 	if (module_alert_template != "") {

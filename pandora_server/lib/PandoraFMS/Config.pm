@@ -26,7 +26,7 @@ use lib '/usr/lib/perl5';
 
 use PandoraFMS::Tools;
 use PandoraFMS::DB;
-use PandoraFMS::Core;
+
 require Exporter;
 
 our @ISA = ("Exporter");
@@ -39,11 +39,13 @@ our @EXPORT = qw(
 	pandora_start_log
 	pandora_get_sharedconfig
 	pandora_get_tconfig_token
+	pandora_get_initial_product_name
+	pandora_get_initial_copyright_notice
 	);
 
 # version: Defines actual version of Pandora Server for this module only
-my $pandora_version = "6.1dev";
-my $pandora_build = "160921";
+my $pandora_version = "7.0NG.739";
+my $pandora_build = "191021";
 our $VERSION = $pandora_version." ".$pandora_build;
 
 # Setup hash
@@ -56,7 +58,7 @@ my %pa_config;
 ##########################################################################
 
 sub help_screen {
-	print "\nSyntax: \n\n pandora_server [ options ] < fullpathname to configuration file (pandora_server.conf) > \n\n";
+	print "\nSyntax: \n\n pandora_server [ options ] < fullpathname to configuration file > \n\n";
 	print "Following options are optional : \n";
 	print "	-v        :  Verbose mode activated. Writes more information in the logfile \n";
 	print "	-d        :  Debug mode activated. Writes extensive information in the logfile \n";
@@ -77,13 +79,13 @@ sub help_screen {
 sub pandora_init {
 	my $pa_config = $_[0];
 	my $init_string = $_[1];
-	print "\n$init_string $pandora_version Build $pandora_build Copyright (c) 2004-2015 ArticaST\n";
+	print "\n$init_string $pandora_version Build $pandora_build Copyright (c) 2004-2018 " . pandora_get_initial_copyright_notice() . "\n";
 	print "This program is OpenSource, licensed under the terms of GPL License version 2.\n";
-	print "You can download latest versions and documentation at http://www.pandorafms.org \n\n";
+	print "You can download latest versions and documentation at official web page.\n\n";
 
 	# Load config file from command line
 	if ($#ARGV == -1 ){
-		print "I need at least one parameter: Complete path to Pandora FMS Server configuration file \n";
+		print "I need at least one parameter: Complete path to " . pandora_get_initial_product_name() . " Server configuration file \n";
 		help_screen;
 		exit;
 	}
@@ -124,7 +126,7 @@ sub pandora_init {
 		}
 	}
 	if ($pa_config->{"pandora_path"} eq ""){
-		print " [ERROR] I need at least one parameter: Complete path to Pandora FMS configuration file. \n";
+		print " [ERROR] I need at least one parameter: Complete path to " . pandora_get_initial_product_name() . " configuration file. \n";
 		print "		For example: ./pandora_server /etc/pandora/pandora_server.conf \n\n";
 		exit;
 	}
@@ -160,17 +162,58 @@ sub pandora_get_sharedconfig ($$) {
 	# Pandora FMS Console's attachment directory
 	$pa_config->{"attachment_dir"} = pandora_get_tconfig_token ($dbh, 'attachment_store', '/var/www/pandora_console/attachment');
 
-	# Metaconsole agent cache.
-	$pa_config->{"metaconsole_agent_cache"} = pandora_get_tconfig_token ($dbh, 'metaconsole_agent_cache', 0);
-	
 	#Limit of events replicate in metaconsole
 	$pa_config->{'replication_limit'} = pandora_get_tconfig_token ($dbh, 'replication_limit', 1000);
 	$pa_config->{'include_agents'} = pandora_get_tconfig_token ($dbh, 'include_agents', 0);
 
-	if ($pa_config->{'include_agents'}== '') {
+	#Public url
+	$pa_config->{'public_url'} = pandora_get_tconfig_token ($dbh, 'public_url', 'http://localhost/pandora_console');
+
+	# Node with a metaconsole license.
+	# NOTE: This must be read when checking license limits!
+	#$pa_config->{"node_metaconsole"} = pandora_get_tconfig_token ($dbh, 'node_metaconsole', 0);
+
+	$pa_config->{"provisioning_mode"} = pandora_get_tconfig_token ($dbh, 'provisioning_mode', '');
+
+	$pa_config->{"event_storm_protection"} = pandora_get_tconfig_token ($dbh, 'event_storm_protection', 0);
+
+	if ($pa_config->{'include_agents'} eq '') {
 		$pa_config->{'include_agents'} = 0;
 	}
 
+	# PandoraFMS product name
+	$pa_config->{'rb_product_name'} = enterprise_hook(
+		'pandora_get_product_name',
+		[$dbh]
+	);
+	$pa_config->{'rb_product_name'} = 'Pandora FMS' unless (defined ($pa_config->{'rb_product_name'}) && $pa_config->{'rb_product_name'} ne '');
+
+	# Mail transport agent configuration. Local configuration takes precedence.
+	if ($pa_config->{"mta_local"} eq 0) {
+		$pa_config->{"mta_address"} = pandora_get_tconfig_token ($dbh, 'email_smtpServer', '');
+		$pa_config->{"mta_from"} = '"' . pandora_get_tconfig_token ($dbh, 'email_from_name', 'Pandora FMS') . '" <' . 
+		                           pandora_get_tconfig_token ($dbh, 'email_from_dir', 'pandora@pandorafms.org') . '>';
+		$pa_config->{"mta_pass"} = pandora_get_tconfig_token ($dbh, 'email_password', '');
+		$pa_config->{"mta_port"} = pandora_get_tconfig_token ($dbh, 'email_smtpPort', '');
+		$pa_config->{"mta_user"} = pandora_get_tconfig_token ($dbh, 'email_username', '');
+		$pa_config->{"mta_encryption"} = pandora_get_tconfig_token ($dbh, 'email_encryption', '');
+
+		# Auto-negotiate the auth mechanism, since it cannot be set from the console.
+		# Do not include PLAIN, it generates the following error:
+		# 451 4.5.0 SMTP protocol violation, see RFC 2821
+		$pa_config->{"mta_auth"} = 'DIGEST-MD5 CRAM-MD5 LOGIN';
+
+		# Fix the format of mta_encryption.
+		if ($pa_config->{"mta_encryption"} eq 'tls') {
+			$pa_config->{"mta_encryption"} = 'starttls';
+		}
+		elsif ($pa_config->{"mta_encryption"} =~ m/^ssl/) {
+			$pa_config->{"mta_encryption"} = 'ssl';
+		}
+		else {
+			$pa_config->{"mta_encryption"} = 'none';
+		}
+	}
 }
 
 ##########################################################################
@@ -195,8 +238,12 @@ sub pandora_load_config {
 	$pa_config->{"dbname"} = "pandora";
 	$pa_config->{"basepath"} = $pa_config->{'pandora_path'}; # Compatibility with Pandora 1.1
 	$pa_config->{"incomingdir"} = "/var/spool/pandora/data_in";
+	$pa_config->{"user"}  = "pandora"; # environment settings default user owner for files generated
+	$pa_config->{"group"} = "apache"; # environment settings default group owner for files generated
+	$pa_config->{"umask"} = "0007"; # environment settings umask applied over chmod (A & (not B))
 	$pa_config->{"server_threshold"} = 30;
 	$pa_config->{"alert_threshold"} = 60;
+	$pa_config->{"graph_precision"} = 1;
 	$pa_config->{"log_file"} = "/var/log/pandora_server.log";
 	$pa_config->{"errorlog_file"} = "/var/log/pandora_server.error";
 	$pa_config->{"networktimeout"} = 5;	# By default, not in config file yet
@@ -207,13 +254,14 @@ sub pandora_load_config {
 	$pa_config->{"dataserver"} = 1; # default
 	$pa_config->{"networkserver"} = 1; # default
 	$pa_config->{"snmpconsole"} = 1; # default
-	$pa_config->{"reconserver"} = 1; # default
+	$pa_config->{"discoveryserver"} = 0; # default
 	$pa_config->{"wmiserver"} = 1; # default
 	$pa_config->{"pluginserver"} = 1; # default
 	$pa_config->{"predictionserver"} = 1; # default
 	$pa_config->{"exportserver"} = 1; # default
 	$pa_config->{"inventoryserver"} = 1; # default
 	$pa_config->{"webserver"} = 1; # 3.0
+	$pa_config->{"web_timeout"} = 60; # 6.0SP5
 	$pa_config->{"transactionalserver"} = 0; # Default 0, introduced on 6.1
 	$pa_config->{"transactional_threads"} = 1; # Default 1, introduced on 6.1
 	$pa_config->{"transactional_threshold"} = 2; # Default 2, introduced on 6.1
@@ -234,6 +282,7 @@ sub pandora_load_config {
 	$pa_config->{"plugin_threads"} = 2; # Introduced on 2.0
 	$pa_config->{"plugin_exec"} = '/usr/bin/timeout'; # 3.0
 	$pa_config->{"recon_threads"} = 2; # Introduced on 2.0
+	$pa_config->{"discovery_threads"} = 2; # Introduced on 732
 	$pa_config->{"prediction_threads"} = 1; # Introduced on 2.0
 	$pa_config->{"plugin_timeout"} = 5; # Introduced on 2.0
 	$pa_config->{"wmi_threads"} = 2; # Introduced on 2.0
@@ -246,8 +295,7 @@ sub pandora_load_config {
 	$pa_config->{"web_engine"} = 'lwp'; # 5.1
 	$pa_config->{"activate_gis"} = 0; # 3.1
 	$pa_config->{"location_error"} = 50; # 3.1
-	$pa_config->{"recon_reverse_geolocation_mode"} = 'disabled'; # 3.1
-	$pa_config->{"recon_reverse_geolocation_file"} = '/usr/local/share/GeoIP/GeoIPCity.dat'; # 3.1
+	$pa_config->{"recon_reverse_geolocation_file"} = ''; # 3.1
 	$pa_config->{"recon_location_scatter_radius"} = 50; # 3.1
 	$pa_config->{"update_parent"} = 0; # 3.1
 	$pa_config->{"google_maps_description"} = 0;
@@ -268,14 +316,28 @@ sub pandora_load_config {
 	$pa_config->{"snmpconsole_threads"} = 1; # 5.1
 	$pa_config->{"translate_variable_bindings"} = 0; # 5.1
 	$pa_config->{"translate_enterprise_strings"} = 1; # 5.1
+	$pa_config->{"syncserver"} = 0; # 7.0
+	$pa_config->{"sync_address"} = ''; # 7.0
+	$pa_config->{"sync_block_size"} = 65535; # 7.0
+	$pa_config->{"sync_ca"} = ''; # 7.0
+	$pa_config->{"sync_cert"} = ''; # 7.0
+	$pa_config->{"sync_key"} = ''; # 7.0
+	$pa_config->{"sync_port"} = '41121'; # 7.0
+	$pa_config->{"sync_retries"} = 2; # 7.0
+	$pa_config->{"sync_timeout"} = 5; # 7.0
+	$pa_config->{"dynamic_updates"} = 5; # 7.0
+	$pa_config->{"dynamic_warning"} = 25; # 7.0
+	$pa_config->{"dynamic_constant"} = 10; # 7.0
 	
 	# Internal MTA for alerts, each server need its own config.
-	$pa_config->{"mta_address"} = '127.0.0.1'; # Introduced on 2.0
-	$pa_config->{"mta_port"} = '25'; # Introduced on 2.0
+	$pa_config->{"mta_address"} = ''; # Introduced on 2.0
+	$pa_config->{"mta_port"} = ''; # Introduced on 2.0
 	$pa_config->{"mta_user"} = ''; # Introduced on 2.0
 	$pa_config->{"mta_pass"} = ''; # Introduced on 2.0
 	$pa_config->{"mta_auth"} = 'none'; # Introduced on 2.0 (Support LOGIN PLAIN CRAM-MD5 DIGEST-MD)
 	$pa_config->{"mta_from"} = 'pandora@localhost'; # Introduced on 2.0 
+	$pa_config->{"mta_encryption"} = 'none'; # 7.0 739
+	$pa_config->{"mta_local"} = 0; # 7.0 739
 	$pa_config->{"mail_in_separate"} = 1; # 1: eMail deliver alert mail in separate mails.
 					      # 0: eMail deliver 1 mail with all destination.
 
@@ -295,11 +357,20 @@ sub pandora_load_config {
 	# Xprobe2 for recon OS fingerprinting and tcpscan (optional)
 	$pa_config->{"xprobe2"} = "/usr/bin/xprobe2";
 
+	# Winexe allows to exec commands on remote windows systems (optional)
+	$pa_config->{"winexe"} = "/usr/bin/winexe";
+
+	# PsExec allows to exec commands on remote windows systems from windows servers (optional)
+	$pa_config->{"psexec"} = 'C:\PandoraFMS\Pandora_Server\bin\PsExec.exe';
 	
+	# plink allows to exec commands on remote linux systems from windows servers (optional)
+	$pa_config->{"plink"} = 'C:\PandoraFMS\Pandora_Server\bin\plink.exe';
+
 	# Snmpget for snmpget system command (optional)
 	$pa_config->{"snmpget"} = "/usr/bin/snmpget";
 	
 	$pa_config->{'autocreate_group'} = -1;
+	$pa_config->{'autocreate_group_force'} = 1;
 	$pa_config->{'autocreate'} = 1;
 
 	# max log size (bytes)
@@ -381,6 +452,7 @@ sub pandora_load_config {
 	$pa_config->{"stats_interval"} = 300;
 	$pa_config->{"agentaccess"} = 1; 
 	$pa_config->{"event_storm_protection"} = 0; 
+	$pa_config->{"node_metaconsole"} = 0; # > 7.0NG
 	# -------------------------------------------------------------------------
 	
 	#SNMP Forwarding tokens
@@ -422,7 +494,45 @@ sub pandora_load_config {
 	$pa_config->{"warmup_unknown_interval"} = 300; # 6.1
 	$pa_config->{"warmup_unknown_on"} = 1; # 6.1
 
+	# Logstash
+	$pa_config->{"logstash_host"} = '';
+	$pa_config->{"logstash_port"} = 0;
+
+	$pa_config->{"wuxserver"} = 1; # 7.0
+	$pa_config->{"wux_host"} = undef; # 7.0
+	$pa_config->{"wux_port"} = 4444; # 7.0
+	$pa_config->{"wux_browser"} = "*firefox"; # 7.0
+	$pa_config->{"wux_webagent_timeout"} = 15; # 7.0
+
+	# Syslog Server
+	$pa_config->{"syslogserver"} = 1; # 7.0.716
+	$pa_config->{"syslog_file"} = '/var/log/messages/'; # 7.0.716
+	$pa_config->{"syslog_max"} = 65535; # 7.0.716
+	$pa_config->{"syslog_threads"} = 4; # 7.0.716
+
 	#$pa_config->{'include_agents'} = 0; #6.1
+	#
+	# External .enc files for XML::Parser.
+	$pa_config->{"enc_dir"} = ""; # > 6.0SP4
+
+	# Enable (1) or disable (0) events related to the unknown status.
+	$pa_config->{"unknown_events"} = 1; # > 6.0SP4
+
+	$pa_config->{"thread_log"} = 0; # 7.0.717
+
+	$pa_config->{"unknown_updates"} = 0; # 7.0.718
+
+	$pa_config->{"provisioningserver"} = 1; # 7.0 720
+	$pa_config->{"provisioningserver_threads"} = 1; # 7.0 720
+	$pa_config->{"provisioning_cache_interval"} = 300; # 7.0 720
+	
+	$pa_config->{"autoconfigure_agents"} = 1; # 7.0 725
+	
+	$pa_config->{'snmp_extlog'} = ""; # 7.0 726
+
+	$pa_config->{"fsnmp"} = "/usr/bin/pandorafsnmp"; # 7.0 732
+
+	$pa_config->{"event_inhibit_alerts"} = 0; # 7.0 737
 
 	# Check for UID0
 	if ($pa_config->{"quiet"} != 0){
@@ -435,13 +545,13 @@ sub pandora_load_config {
 	# Check for file
 	if ( ! -f $archivo_cfg ) {
 		printf "\n [ERROR] Cannot open configuration file at $archivo_cfg. \n";
-		printf "	Please specify a valid Pandora FMS configuration file in command line. \n";
+		printf "	Please specify a valid " . pandora_get_initial_product_name() ." configuration file in command line. \n";
 		print "	Standard configuration file is at /etc/pandora/pandora_server.conf \n";
 		exit 1;
 	}
 
 	# Collect items from config file and put in an array 
-	if (! open (CFG, "< $archivo_cfg")) {
+	if (! open (CFG, "<:encoding(UTF-8)", $archivo_cfg)) {
 		print "[ERROR] Error opening configuration file $archivo_cfg: $!.\n";
 		exit 1;
 	}
@@ -509,6 +619,7 @@ sub pandora_load_config {
 		}
 		elsif ($parametro =~ m/^mta_address\s(.*)/i) { 
 			$pa_config->{'mta_address'}= clean_blank($1); 
+			$pa_config->{'mta_local'}=1;
 		}
 		elsif ($parametro =~ m/^mta_port\s(.*)/i) { 
 			$pa_config->{'mta_port'}= clean_blank($1); 
@@ -518,6 +629,9 @@ sub pandora_load_config {
 		}
 		elsif ($parametro =~ m/^mta_from\s(.*)/i) { 
 			$pa_config->{'mta_from'}= clean_blank($1); 
+		}
+		elsif ($parametro =~ m/^mta_encryption\s(.*)/i) { 
+			$pa_config->{'mta_encryption'}= clean_blank($1); 
 		}
 		elsif ($parametro =~ m/^mail_in_separate\s+([0-9]*)/i) { 
 			$pa_config->{'mail_in_separate'}= clean_blank($1); 
@@ -548,6 +662,15 @@ sub pandora_load_config {
 		}
 		elsif ($parametro =~ m/^translate_enterprise_strings\s+([0-1])/i) { 
 			$pa_config->{'translate_enterprise_strings'}= clean_blank($1); 
+		}
+		elsif ($parametro =~ m/^user\s(.*)/i) { 
+			$pa_config->{'user'}= clean_blank($1); 
+		}
+		elsif ($parametro =~ m/^group\s(.*)/i) { 
+			$pa_config->{'group'}= clean_blank($1); 
+		}
+		elsif ($parametro =~ m/^umask\s(.*)/i) { 
+			$pa_config->{'umask'}= clean_blank($1); 
 		}
 		elsif ($parametro =~ m/^dbengine\s(.*)/i) { 
 			$pa_config->{'dbengine'}= clean_blank($1); 
@@ -582,8 +705,8 @@ sub pandora_load_config {
 		elsif ($parametro =~ m/^predictionserver\s+([0-9]*)/i){
 			$pa_config->{'predictionserver'}= clean_blank($1);
 		}
-		elsif ($parametro =~ m/^reconserver\s+([0-9]*)/i) {
-			$pa_config->{'reconserver'}= clean_blank($1);
+		elsif ($parametro =~ m/^discoveryserver\s+([0-9]*)/i) {
+			$pa_config->{'discoveryserver'}= clean_blank($1);
 		}
 		elsif ($parametro =~ m/^reconserver\s+([0-9]*)/i) {
 			$pa_config->{'reconserver'}= clean_blank($1);
@@ -600,13 +723,16 @@ sub pandora_load_config {
 		elsif ($parametro =~ m/^webserver\s+([0-9]*)/i) {
 			$pa_config->{'webserver'}= clean_blank($1);
 		}
+		elsif ($parametro =~ m/^web_timeout\s+([0-9]*)/i) {
+			$pa_config->{'web_timeout'}= clean_blank($1); 
+		}
 		elsif ($parametro =~ m/^transactionalserver\s+([0-9]*)/i) {
 			$pa_config->{'transactionalserver'}= clean_blank($1);
 		}
 		elsif ($parametro =~ m/^transactional_threads\s+([0-9]*)/i) {
 			$pa_config->{'transactional_threads'}= clean_blank($1);
 		}
-		elsif ($parametro =~ m/^transactional_threshold\s+([0-9]*)/i) {
+		elsif ($parametro =~ m/^transactional_threshold\s+([0-9]*\.{0,1}[0-9]*)/i) {
 			$pa_config->{'transactional_threshold'}= clean_blank($1);
 		}
 		if ($parametro =~ m/^transactional_pool\s(.*)/i) {
@@ -674,6 +800,9 @@ sub pandora_load_config {
 		elsif ($parametro =~ m/^alert_threshold\s+([0-9]*)/i) { 
 			$pa_config->{"alert_threshold"} = clean_blank($1); 
 		} 
+		elsif ($parametro =~ m/^graph_precision\s+([0-9]*)/i) { 
+			$pa_config->{"graph_precision"} = clean_blank($1); 
+		} 
 		elsif ($parametro =~ m/^network_timeout\s+([0-9]*)/i) {
 			$pa_config->{'networktimeout'}= clean_blank($1); 
 		}
@@ -717,6 +846,15 @@ sub pandora_load_config {
 		elsif ($parametro =~ m/^xprobe2\s(.*)/i) {
 			$pa_config->{'xprobe2'}= clean_blank($1); 
 		}
+		elsif ($parametro =~ m/^winexe\s(.*)/i) {
+			$pa_config->{'winexe'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^psexec\s(.*)/i) {
+			$pa_config->{'psexec'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^plink\s(.*)/i) {
+			$pa_config->{'plink'}= clean_blank($1);
+		}
 		elsif ($parametro =~ m/^snmpget\s(.*)/i) {
 			$pa_config->{'snmpget'}= clean_blank($1); 
 		}
@@ -725,6 +863,12 @@ sub pandora_load_config {
 		}
 		elsif ($parametro =~ m/^autocreate_group\s+([0-9*]*)/i) {
 			$pa_config->{'autocreate_group'}= clean_blank($1); 
+		}
+		elsif ($parametro =~ m/^autocreate_group_force\s+([0-1])/i) {
+			$pa_config->{'autocreate_group_force'}= clean_blank($1); 
+		}
+		elsif ($parametro =~ m/^discovery_threads\s+([0-9]*)/i) {
+			$pa_config->{'discovery_threads'}= clean_blank($1);
 		}
 		elsif ($parametro =~ m/^recon_threads\s+([0-9]*)/i) {
 			$pa_config->{'recon_threads'}= clean_blank($1); 
@@ -785,12 +929,13 @@ sub pandora_load_config {
 		}
 		elsif ($parametro =~ m/^location_error\s+(\d+)/i) {
 			$pa_config->{'location_error'} = clean_blank($1);
-		}
-		elsif ($parametro =~ m/^recon_reverse_geolocation_mode\s+(\w+)/i) {
-			$pa_config->{'recon_reverse_geolocation_mode'} = clean_blank($1);
 		} #FIXME: Find a better regexp to validate the path
 		elsif ($parametro =~ m/^recon_reverse_geolocation_file\s+(.*)/i) {
 			$pa_config->{'recon_reverse_geolocation_file'} = clean_blank($1);
+			if ( ! -r $pa_config->{'recon_reverse_geolocation_file'} ) {
+				print "[WARN] Invalid recon_reverse_geolocation_file.\n";
+				$pa_config->{'recon_reverse_geolocation_file'} = '';
+			}
 		}
 		elsif ($parametro =~ m/^recon_location_scatter_radius\s+(\d+)/i) {
 			$pa_config->{'recon_location_scatter_radius'} = clean_blank($1);
@@ -827,6 +972,9 @@ sub pandora_load_config {
 		}
 		elsif ($parametro =~ m/^event_file\s+(.*)/i) {
 			$pa_config->{'event_file'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^event_inhibit_alerts\s+([0-1])/i) {
+			$pa_config->{'event_inhibit_alerts'}= clean_blank($1);
 		}
 		elsif ($parametro =~ m/^text_going_down_normal\s+(.*)/i) {
 			$pa_config->{'text_going_down_normal'} = safe_input ($1);
@@ -906,7 +1054,7 @@ sub pandora_load_config {
 			$pa_config->{'console_pass'}= safe_input(clean_blank($1));
 		}
 		elsif ($parametro =~ m/^encryption_passphrase\s(.*)/i) { # 6.0
-			$pa_config->{'encryption_passphrase'}= safe_input(clean_blank($1));
+			$pa_config->{'encryption_passphrase'} = clean_blank($1);
 		}
 		elsif ($parametro =~ m/^unknown_interval\s+([0-9]*)/i) { # > 5.1SP2
 			$pa_config->{'unknown_interval'}= clean_blank($1);
@@ -944,7 +1092,122 @@ sub pandora_load_config {
 		#elsif ($parametro =~ m/^include_agents\s+([0-1])/i) {
 		#	$pa_config->{'include_agents'}= clean_blank($1);
 		#}
+		elsif ($parametro =~ m/^enc_dir\s+(.*)/i) {
+			$pa_config->{'enc_dir'} = clean_blank($1);
+		}
+		elsif ($parametro =~ m/^unknown_events\s+([0-1])/i) {
+			$pa_config->{'unknown_events'} = clean_blank($1);
+		}
+		elsif ($parametro =~ m/^syncserver\s+([0-9]*)/i) {
+			$pa_config->{'syncserver'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^sync_address\s+(.*)/i) {
+			$pa_config->{'sync_address'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^sync_block_size\s+([0-9]*)/i) {
+			$pa_config->{'sync_block_size'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^sync_ca\s+(.*)/i) {
+			$pa_config->{'sync_ca'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^sync_cert\s+(.*)/i) {
+			$pa_config->{'sync_cert'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^sync_key\s+(.*)/i) {
+			$pa_config->{'sync_key'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^sync_port\s+([0-9]*)/i) {
+			$pa_config->{'sync_port'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^sync_timeout\s+([0-9]*)/i) {
+			$pa_config->{'sync_timeout'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^sync_retries\s+([0-9]*)/i) {
+			$pa_config->{'sync_retries'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^dynamic_updates\s+([0-9]*)/i) {
+			$pa_config->{'dynamic_updates'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^dynamic_warning\s+([0-9]*)/i) {
+			$pa_config->{'dynamic_warning'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^dynamic_constant\s+([0-9]*)/i) {
+			$pa_config->{'dynamic_constant'}= clean_blank($1);
+		}
+
+		elsif ($parametro =~ m/^logstash_host\s+(.*)/i) {
+			$pa_config->{'logstash_host'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^logstash_port\s+([0-9]*)/i) {
+			$pa_config->{'logstash_port'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^wuxserver\s+([0-1]*)/i) {
+			$pa_config->{"wuxserver"} = clean_blank($1);
+		}
+		elsif ($parametro =~ m/^wux_host\s+(.*)/i) {
+			$pa_config->{'wux_host'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^wux_port\s+([0-9]*)/i) {
+			$pa_config->{'wux_port'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^wux_browser\s+(.*)/i) {
+			$pa_config->{'wux_browser'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^wux_webagent_timeout\s+([0-9]*)/i) {
+			$pa_config->{'wux_webagent_timeout'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^syslogserver\s+([0-1])/i) {
+			$pa_config->{'syslogserver'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^syslog_file\s+(.*)/i) {
+			$pa_config->{'syslog_file'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^syslog_max\s+([0-9]*)/i) {
+			$pa_config->{'syslog_max'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^syslog_threads\s+([0-9]*)/i) {
+			$pa_config->{'syslog_threads'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^thread_log\s+([0-1])/i) {
+			$pa_config->{'thread_log'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^unknown_updates\s+([0-1])/i) {
+			$pa_config->{'unknown_updates'} = clean_blank($1);
+		}
+		elsif ($parametro =~ m/^provisioningserver\s+([0-1])/i){
+			$pa_config->{'provisioningserver'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^provisioningserver_threads\s+([0-9]*)/i){
+			$pa_config->{'provisioningserver_threads'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^provisioning_cache_interval\s+([0-9]*)/i){
+			$pa_config->{'provisioning_cache_interval'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^autoconfigure_agents\s+([0-1])/i){
+			$pa_config->{'autoconfigure_agents'}= clean_blank($1);
+		}
+		elsif ($parametro =~ m/^snmp_extlog\s(.*)/i) { 
+			$pa_config->{'snmp_extlog'} = clean_blank($1); 
+		}
+		elsif ($parametro =~ m/^fsnmp\s(.*)/i) {
+			$pa_config->{'fsnmp'}= clean_blank($1); 
+		}
+
+		# Pandora HA extra
+		elsif ($parametro =~ m/^ha_file\s(.*)/i) {
+			$pa_config->{'ha_file'} = clean_blank($1);
+		}
+		elsif ($parametro =~ m/^ha_pid_file\s(.*)/i) {
+			$pa_config->{'ha_pid_file'} = clean_blank($1);
+		}
+		elsif ($parametro =~ m/^pandora_service_cmd\s(.*)/i) {
+			$pa_config->{'pandora_service_cmd'} = clean_blank($1);
+		}
+		
 	} # end of loop for parameter #
+
+	# Generate the encryption key after reading the passphrase.
+	$pa_config->{"encryption_key"} = enterprise_hook('pandora_get_encryption_key', [$pa_config, $pa_config->{"encryption_passphrase"}]);
 
 	# Set to RDBMS' standard port
 	if (!defined($pa_config->{'dbport'})) {
@@ -998,8 +1261,10 @@ sub pandora_start_log ($){
 	my $pa_config = shift;
 
 	# Dump all errors to errorlog
-	open (STDERR, ">> " . $pa_config->{'errorlog_file'}) or die " [ERROR] Pandora FMS can't write to Errorlog. Aborting : \n $! \n";
-	print STDERR strftime ("%Y-%m-%d %H:%M:%S", localtime()) . ' - ' . $pa_config->{'servername'} . " Starting Pandora FMS Server. Error logging activated.\n";
+	open (STDERR, ">> " . $pa_config->{'errorlog_file'}) or die " [ERROR] " . pandora_get_initial_product_name() . " can't write to Errorlog. Aborting : \n $! \n";
+	my $mode = 0664;
+	chmod $mode, $pa_config->{'errorlog_file'};
+	print STDERR strftime ("%Y-%m-%d %H:%M:%S", localtime()) . ' - ' . $pa_config->{'servername'} . " Starting " . pandora_get_initial_product_name() . " Server. Error logging activated.\n";
 }
 
 ##########################################################################
@@ -1009,11 +1274,31 @@ sub pandora_get_tconfig_token ($$$) {
 	my ($dbh, $token, $default_value) = @_;
 	
 	my $token_value = get_db_value ($dbh, "SELECT value FROM tconfig WHERE token = ?", $token);
-	if (defined ($token_value)) {
+	if (defined ($token_value) && $token_value ne '') {
 		return safe_output ($token_value);
 	}
 	
 	return $default_value;
+}
+
+##########################################################################
+# Get the product name in previous tasks to read from database.
+##########################################################################
+sub pandora_get_initial_product_name {
+	# PandoraFMS product name
+	my $product_name = $ENV{'PANDORA_RB_PRODUCT_NAME'};
+	return 'Pandora FMS' unless (defined ($product_name) && $product_name ne '');
+	return $product_name;
+}
+
+##########################################################################
+# Get the copyright notice.
+##########################################################################
+sub pandora_get_initial_copyright_notice {
+	# PandoraFMS product name
+	my $name = $ENV{'PANDORA_RB_COPYRIGHT_NOTICE'};
+	return 'Artica ST' unless (defined ($name) && $name ne '');
+	return $name;
 }
 
 # End of function declaration

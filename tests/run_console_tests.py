@@ -2,7 +2,7 @@
 from unittest2 import *
 from console.include.common_functions_60 import *
 from console.include.common_classes_60 import *
-#from sauceclient import SauceClient
+from pyvirtualdisplay import Display
 from os import environ, getenv
 import subprocess, time, sys
 
@@ -10,12 +10,17 @@ def get_test_file(test_list):
 	#return [test[0].split(' ')[0].split('.')[0].split('<')[1] for test in test_list]
 	return [test[0].test_name for test in test_list]
 
+# Are we running headless?
+if ('DISPLAY' not in os.environ):
+    display = Display(visible=0, size=(1920, 1080))
+    display.start()
+
 #Run Enterprise tests
 is_enterprise = '1' == getenv('ENTERPRISE', False)
 
 a = TestLoader()
 
-tests = a.discover(start_dir='console',pattern='ACL.py')
+tests = a.discover(start_dir='console',pattern='*.py')
 
 c = ArticaTestResult()
 tests.run(c)
@@ -37,7 +42,8 @@ tests.run(c)
 #                next
 #Update Saouce Labs jobs
 	
-
+if ('DISPLAY' not in os.environ):
+    display.stop()
 
 print "Tests failed: %s" % c.failures
 print "Tests succeeded: %s" % c.success

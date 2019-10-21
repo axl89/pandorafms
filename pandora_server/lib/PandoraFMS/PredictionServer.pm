@@ -77,7 +77,7 @@ sub run ($) {
 	my $self = shift;
 	my $pa_config = $self->getConfig ();
 	
-	print_message ($pa_config, " [*] Starting Pandora FMS Prediction Server.", 1);
+	print_message ($pa_config, " [*] Starting " . $pa_config->{'rb_product_name'} . " Prediction Server.", 1);
 	$self->setNumThreads ($pa_config->{'prediction_threads'});
 	$self->SUPER::run (\@TaskQueue, \%PendingTasks, $Sem, $TaskSem);
 }
@@ -176,7 +176,7 @@ sub exec_prediction_module ($$$$) {
 			logger ($pa_config, "Executing service module " .
 				$agent_module->{'id_agente_modulo'} . " " .
 				$agent_module->{'nombre'}, 10);
-			enterprise_hook ('exec_service_module', [$pa_config, $agent_module, $server_id, $dbh]);
+			enterprise_hook ('exec_service_module', [$pa_config, $agent_module, undef, $server_id, $dbh]);
 		}
 		
 		return;
@@ -196,6 +196,27 @@ sub exec_prediction_module ($$$$) {
 		return;
 	}
 	
+	# Cluster status module.
+	if ($agent_module->{'prediction_module'} == 5) {
+		logger ($pa_config, "Executing cluster status module " . $agent_module->{'nombre'}, 10);
+		enterprise_hook ('exec_cluster_status_module', [$pa_config, $agent_module, $server_id, $dbh]);
+		return;
+	}
+
+	# Cluster active-active module.
+	if ($agent_module->{'prediction_module'} == 6) {
+		logger ($pa_config, "Executing cluster active-active module " . $agent_module->{'nombre'}, 10);
+		enterprise_hook ('exec_cluster_aa_module', [$pa_config, $agent_module, $server_id, $dbh]);
+		return;
+	}
+
+	# Cluster active-passive module.
+	if ($agent_module->{'prediction_module'} == 7) {
+		logger ($pa_config, "Executing cluster active-passive module " . $agent_module->{'nombre'}, 10);
+		enterprise_hook ('exec_cluster_ap_module', [$pa_config, $agent_module, $server_id, $dbh]);
+		return;
+	}
+
 	# Get a full hash for target agent_module record reference ($target_module)
 	my $target_module = get_db_single_row ($dbh, 'SELECT * FROM tagente_modulo WHERE id_agente_modulo = ?', $agent_module->{'custom_integer_1'});
 	return unless defined $target_module;
@@ -323,7 +344,7 @@ sub exec_prediction_module ($$$$) {
 		$agent_os_version = $pa_config->{'servername'}.'_Prediction';
 	}
 	
-	pandora_update_agent ($pa_config, $timestamp, $agent_module->{'id_agente'}, $agent_os_version, $pa_config->{'version'}, -1, $dbh);
+	pandora_update_agent ($pa_config, $timestamp, $agent_module->{'id_agente'}, undef, undef, -1, $dbh);
 }
 
 1;

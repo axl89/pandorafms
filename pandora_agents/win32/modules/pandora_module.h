@@ -22,6 +22,7 @@
 #define	__PANDORA_MODULE_H__
 
 #include "../pandora.h"
+#include "../misc/cron.h"
 #include "pandora_data.h"
 #include "boost/regex.h"
 #include <list>
@@ -50,7 +51,9 @@ namespace Pandora_Modules {
 		TYPE_ASYNC_DATA, /**< Asynchronous generic_data */
 		TYPE_ASYNC_PROC, /**< Asynchronous generic_proc */
 		TYPE_ASYNC_STRING, /**< Asynchronous generic_data_string */
-		TYPE_LOG /**< Log data */
+		TYPE_LOG, /**< Log data */
+		TYPE_GENERIC_DATA_INC_ABS /**< The value is an integer with
+					  *  incremental diferences (timestamps are ignored) */
 	} Module_Type;
 
 	const string module_generic_data_str        = "generic_data";
@@ -61,6 +64,7 @@ namespace Pandora_Modules {
 	const string module_async_proc_str          = "async_proc";
 	const string module_async_string_str        = "async_string";
 	const string module_log_str                 = "log";
+	const string module_generic_data_inc_abs_str = "generic_data_inc_abs";
 
 	/**
 	 * Defines the kind of the module.
@@ -83,6 +87,7 @@ namespace Pandora_Modules {
 		MODULE_FREEMEMORY_PERCENT, /**< The module checks the amount of 
 				   *   freememory in the system        */
 		MODULE_LOGEVENT,       /**< The module checks for log events */	
+		MODULE_LOGCHANNEL,     /**< The module checks for log events on channel using XML functions*/	
 		MODULE_WMIQUERY,       /**< The module runs WQL queries */		
 		MODULE_PERFCOUNTER,    /**< The module reads performance counters */
 		MODULE_TCPCHECK,       /**< The module checks whether a tcp port is open */
@@ -104,15 +109,6 @@ namespace Pandora_Modules {
 		regex_t regexp;
 	} Condition;
 
-	/**
-	 * Defines the structure that holds the module cron.
-	 */
-	typedef struct {
-		time_t utimestamp;
-		int interval;
-		int params[5][2];
-	} Cron;
-
 	const string module_exec_str       = "module_exec";
 	const string module_proc_str       = "module_proc";
 	const string module_service_str    = "module_service";
@@ -123,6 +119,7 @@ namespace Pandora_Modules {
 	const string module_cpuusage_str   = "module_cpuusage";
 	const string module_inventory_str  = "module_inventory";
 	const string module_logevent_str   = "module_logevent";	
+	const string module_logchannel_str   = "module_logchannel";
 	const string module_wmiquery_str   = "module_wmiquery";	
 	const string module_perfcounter_str = "module_perfcounter";
 	const string module_tcpcheck_str   = "module_tcpcheck";	
@@ -179,6 +176,7 @@ namespace Pandora_Modules {
 		string                unit, custom_id, str_warning, str_critical;
 		string 		          module_group, warning_inverse, critical_inverse, quiet;
 		string                module_ff_interval, module_alert_template, module_crontab;
+		string                module_ff_type;
 		string                critical_instructions, warning_instructions, unknown_instructions, tags;
 
 	protected:
@@ -235,6 +233,9 @@ namespace Pandora_Modules {
 		void         setTimeout    (int timeout);
 		int          getTimeout    ();
 		string       getSave ();
+		bool         getAsync ();
+		void         setExecutions(long executions=0);
+		long         getExecutions();
 
 		virtual string getXml      ();
 
@@ -279,6 +280,7 @@ namespace Pandora_Modules {
 		void        setWarningInverse  (string value);
 		void        setQuiet       (string value);
 		void        setModuleFFInterval  (string value);
+		void        setModuleFFType  (string value);
 		void        setModuleAlertTemplate  (string value);
 		void        setModuleCrontab  (string value);
 		
@@ -292,9 +294,8 @@ namespace Pandora_Modules {
 		void		addIntensiveCondition    (string intensivecondition);
 		int 		evaluatePreconditions ();
 		void		evaluateConditions ();
-		int         checkCron (int module_interval, int agent_interval);
+		bool        checkCron (int interval);
 		void        setCron (string cron_string);
-		void        setCronInterval (int interval);
 		int         evaluateCondition (string string_value, double double_value, Condition *condition);
 		int         evaluateIntensiveConditions ();
 		int         hasOutput ();

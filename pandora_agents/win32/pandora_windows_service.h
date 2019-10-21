@@ -42,8 +42,10 @@ namespace Pandora {
 	private:
 		Pandora_Agent_Conf  *conf;
 		Pandora_Module_List *modules;
+		Pandora_Module_List *broker_modules;
 		long                 execution_number;
 		string               agent_name;
+		string               alias;
 		time_t               timestamp;
 		time_t               run_time;
 		bool                 started;
@@ -85,7 +87,7 @@ namespace Pandora {
 		int           checkConfig (string file);
 		void		 purgeDiskCollections ();
 		void           pandora_init_broker (string file_conf);
-		void           pandora_run_broker (string config);
+		void           pandora_run_broker (string config, long executions=0);
 		int 		   count_broker_agents();
 		void 		   check_broker_agents(string *all_conf);
 		int 		   launchTentacleProxy();
@@ -97,6 +99,7 @@ namespace Pandora {
 		void           pandora_run  (int forced_run);
 		void           pandora_run  ();
 		void           pandora_init ();
+		void           pandora_init (bool reload_modules);
 		
 		long           interval;
 		long           interval_sec;
@@ -114,8 +117,10 @@ namespace Pandora {
 		int            sendXml      (Pandora_Module_List *modules);
         void           sendBufferedXml (string path);
 		Pandora_Agent_Conf *getConf ();
+		string         getEHKey (string ehorus_conf);
 		long           getInterval ();
 		long           getIntensiveInterval ();
+		string         generateAgentName ();
 
 	};
 }

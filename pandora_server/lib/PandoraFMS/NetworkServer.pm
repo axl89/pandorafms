@@ -55,8 +55,8 @@ sub new ($$$) {
 	return undef unless $config->{'networkserver'} == 1;
 
 	if (! -e $config->{'snmpget'}) {
-		logger ($config, ' [E] ' . $config->{'snmpget'} . " needed by Pandora FMS Network Server not found.", 1);
-		print_message ($config, ' [E] ' . $config->{'snmpget'} . " needed by Pandora FMS Network Server not found.", 1);
+		logger ($config, ' [E] ' . $config->{'snmpget'} . " needed by " . $config->{'rb_product_name'} . " Network Server not found.", 1);
+		print_message ($config, ' [E] ' . $config->{'snmpget'} . " needed by " . $config->{'rb_product_name'} . " Network Server not found.", 1);
 		return undef;
 	}
 
@@ -80,7 +80,7 @@ sub run ($) {
 	my $self = shift;
 	my $pa_config = $self->getConfig ();
 
-	print_message ($pa_config, " [*] Starting Pandora FMS Network Server.", 1);
+	print_message ($pa_config, " [*] Starting " . $pa_config->{'rb_product_name'} . " Network Server.", 1);
 	$self->setNumThreads ($pa_config->{'network_threads'});
 	$self->SUPER::run (\@TaskQueue, \%PendingTasks, $Sem, $TaskSem);
 }
@@ -151,7 +151,7 @@ sub data_consumer ($$) {
 #						 tcp_rcv, id_tipo_module, dbh)
 # Makes a call to TCP modules to get a value.
 ##########################################################################
-sub pandora_query_tcp ($$$$$$$$$$) {
+sub pandora_query_tcp ($$$$$$$$$$;$) {
 	my $pa_config = $_[0];
 	my $tcp_port = $_[1];
 	my $ip_target = $_[2];
@@ -162,6 +162,7 @@ sub pandora_query_tcp ($$$$$$$$$$) {
 	my $id_tipo_modulo = $_[7];
 	my $timeout = $_[8];
 	my $retries = $_[9];
+	my $module_id = $_[10]; # Only for info purpose
 	
 	# Adjust timeout and retry values
 	if ($timeout == 0) {
@@ -201,6 +202,7 @@ next_pair:
 
 			if  ((defined ($tcp_send)) && ($tcp_send ne "")){ # its Expected to sending data ?
 				# Send data
+				logger ($pa_config,"[INFO] TCP query on port $tcp_port with target $ip_target by module with id $module_id." , 10);
 				$handle->autoflush(1);
 				$tcp_send =~ s/\^M/\r\n/g;
 				# Replace Carriage rerturn and line feed
@@ -339,18 +341,24 @@ sub pandora_snmp_get_command ($$$$$$$$$$$) {
 # Makes a call to SNMP modules to get a value,
 ##########################################################################
 
-sub pandora_query_snmp ($$$) {
-	my ($pa_config, $module, $dbh) = @_;
+sub pandora_query_snmp ($$$$) {
+	my ($pa_config, $module, $ip_target, $dbh) = @_;
 
+	# Initialize macros.
+	my %macros = (
+		'_agentcustomfield_\d+_' => undef,
+	);
+
+	
 	my $snmp_version = $module->{"tcp_send"}; # (1, 2, 2c or 3)
 	my $snmp3_privacy_method = $module->{"custom_string_1"}; # DES/AES
-	my $snmp3_privacy_pass = pandora_output_password($pa_config, $module->{"custom_string_2"});
+	my $snmp3_privacy_pass = safe_output(pandora_output_password($pa_config, subst_column_macros($module->{"custom_string_2"}, \%macros, $pa_config, $dbh, undef, $module)));
 	my $snmp3_security_level = $module->{"custom_string_3"}; # noAuthNoPriv|authNoPriv|authPriv
-	my $snmp3_auth_user = $module->{"plugin_user"};
-	my $snmp3_auth_pass = pandora_output_password($pa_config, $module->{"plugin_pass"});
+	my $snmp3_auth_user = safe_output(subst_column_macros($module->{"plugin_user"}, \%macros, $pa_config, $dbh, undef, $module));
+	my $snmp3_auth_pass = safe_output(pandora_output_password($pa_config, subst_column_macros($module->{"plugin_pass"}, \%macros, $pa_config, $dbh, undef, $module)));
 	my $snmp3_auth_method = $module->{"plugin_parameter"}; #MD5/SHA1
-	my $snmp_community = $module->{"snmp_community"};
-	my $snmp_target = $module->{"ip_target"};
+	my $snmp_community = safe_output(subst_column_macros($module->{"snmp_community"}, \%macros, $pa_config, $dbh, undef, $module));
+	my $snmp_target = $ip_target;
 	my $snmp_oid = $module->{"snmp_oid"};
 	my $snmp_port = $module->{"tcp_port"};
 
@@ -400,19 +408,19 @@ sub pandora_query_snmp ($$$) {
 		
 		# SNMP v3 no authentication and no privacy
 		if ($snmp3_security_level eq "noAuthNoPriv"){
-			$snmp3_extra = " -u $snmp3_auth_user ";
+			$snmp3_extra = " -u '$snmp3_auth_user' ";
 		}
 		
 		# SNMP v3 authentication only
 		if ($snmp3_security_level eq "authNoPriv"){
-			$snmp3_extra = " -a $snmp3_auth_method -u $snmp3_auth_user -A $snmp3_auth_pass ";
+			$snmp3_extra = " -a $snmp3_auth_method -u '$snmp3_auth_user' -A '$snmp3_auth_pass' ";
 		}
 
 		# SNMP v3 privacy AND authentication
 		if ($snmp3_security_level eq "authPriv"){
-			$snmp3_extra = " -a $snmp3_auth_method -u $snmp3_auth_user -A $snmp3_auth_pass -x $snmp3_privacy_method -X $snmp3_privacy_pass ";
+			$snmp3_extra = " -a $snmp3_auth_method -u '$snmp3_auth_user' -A '$snmp3_auth_pass' -x $snmp3_privacy_method -X '$snmp3_privacy_pass' ";
 		}
-       
+		
 		$output = pandora_snmp_get_command ($snmpget_cmd, $snmp_version, $snmp_retries, $snmp_timeout, $snmp_community, $snmp_target, $snmp_oid, $snmp3_security_level, $snmp3_extra, $snmp_port, $pa_config);
 		if (defined ($output) && $output ne ""){
 			$module_result = 0;
@@ -462,7 +470,7 @@ sub exec_network_module ($$$$) {
 	my $retries = $module->{'max_retries'};
 
 	# Use the agent address by default
-	if (! defined($ip_target) || $ip_target eq '') {
+	if (! defined($ip_target) || $ip_target eq '' || $ip_target eq 'auto') {
 		$ip_target = $agent_row->{'direccion'};
 	}
 
@@ -493,7 +501,7 @@ sub exec_network_module ($$$$) {
 				($id_tipo_modulo == 16) || 
 				($id_tipo_modulo == 17)) {
 
-			($module_data, $module_result) = pandora_query_snmp ($pa_config, $module, $dbh);
+			($module_data, $module_result) = pandora_query_snmp ($pa_config, $module, $ip_target, $dbh);
 
 		    if ($module_result == 0) { # A correct SNMP Query
 			    # SNMP_DATA_PROC
@@ -531,7 +539,7 @@ sub exec_network_module ($$$$) {
 				($id_tipo_modulo == 10) || 
 				($id_tipo_modulo == 11)) { # TCP Module
             if ((defined($tcp_port)) && ($tcp_port < 65536) && ($tcp_port > 0)) { # Port check
-			    pandora_query_tcp ($pa_config, $tcp_port, $ip_target, \$module_result, \$module_data, $tcp_send, $tcp_rcv, $id_tipo_modulo, $timeout, $retries);
+			    pandora_query_tcp ($pa_config, $tcp_port, $ip_target, \$module_result, \$module_data, $tcp_send, $tcp_rcv, $id_tipo_modulo, $timeout, $retries, $id_agente_modulo);
 		    } else { 
 			    # Invalid port, get no check
 			    $module_result = 1;
@@ -553,7 +561,7 @@ sub exec_network_module ($$$$) {
 		}
 
 		# Update agent last contact using Pandora version as agent version
-		pandora_update_agent ($pa_config, $timestamp, $id_agente, $agent_os_version, $pa_config->{'version'}, -1, $dbh);
+		pandora_update_agent ($pa_config, $timestamp, $id_agente, undef, undef, -1, $dbh);
 	
     } else {
 		# Modules who cannot connect or something go bad, update last_execution_try field

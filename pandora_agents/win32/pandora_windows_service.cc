@@ -26,6 +26,7 @@
 #include "ssh/pandora_ssh_client.h"
 #include "ftp/pandora_ftp_client.h"
 #include "misc/pandora_file.h"
+#include "misc/sha256.h"
 #include "windows/pandora_windows_info.h"
 #include "udp_server/udp_server.h"
 
@@ -39,6 +40,8 @@
 #include <pandora_agent_conf.h>
 #include <fstream>
 #include <unistd.h>
+#include <sstream>
+#include <string>
 
 #define BUFSIZE 4096
 
@@ -73,6 +76,7 @@ Pandora_Windows_Service::setValues (const char * svc_name,
 	this->service_description   = (char *) svc_description;
 	execution_number            = 0;
 	this->modules               = NULL;
+	this->broker_modules		= NULL;
 	this->conf                  = NULL;
 	this->interval              = 60000;
 	this->timestamp             = 0;
@@ -101,6 +105,10 @@ Pandora_Windows_Service::~Pandora_Windows_Service () {
 
 	if (this->modules != NULL) {
 		delete this->modules;
+	}
+
+	if (this->broker_modules != NULL) {
+		delete this->broker_modules;
 	}
 	pandoraLog ("Pandora agent stopped");
 }
@@ -133,10 +141,10 @@ Pandora_Windows_Service::pandora_init_broker (string file_conf) {
 	
 	this->conf = Pandora::Pandora_Agent_Conf::getInstance ();
 	this->conf->setFile (file_conf);
-	if (this->modules != NULL) {
-		delete this->modules;
+	if (this->broker_modules != NULL) {
+		delete this->broker_modules;
 	}
-	this->modules = new Pandora_Module_List (file_conf);
+	this->broker_modules = new Pandora_Module_List (file_conf);
 	
 	pandoraDebug ("Pandora broker agent started");
 }
@@ -205,9 +213,14 @@ Pandora_Windows_Service::check_broker_agents(string *all_conf){
 
 void
 Pandora_Windows_Service::pandora_init () {
+	pandora_init(true);
+}
+
+void
+Pandora_Windows_Service::pandora_init (bool reload_modules) {
 	string conf_file, interval, debug, disable_logfile, intensive_interval, util_dir, path, env;
 	string udp_server_enabled, udp_server_port, udp_server_addr, udp_server_auth_addr;
-	string name_agent, name;
+	string agent_name, agent_name_cmd, agent_alias, agent_alias_cmd, pandora_agent;
 	string proxy_mode, server_ip;
 	string *all_conf;
 	int pos, num;
@@ -221,7 +234,7 @@ Pandora_Windows_Service::pandora_init () {
 	
 	this->conf = Pandora::Pandora_Agent_Conf::getInstance ();
 	this->conf->setFile (all_conf);
-	if (this->modules != NULL) {
+	if (this->modules != NULL && reload_modules) {
 		delete this->modules;
 	}
 
@@ -252,15 +265,83 @@ Pandora_Windows_Service::pandora_init () {
 	this->setSleepTime (this->intensive_interval);
 
 	// Read modules
-	this->modules = new Pandora_Module_List (conf_file);
-	delete []all_conf;
-	
-	name = checkAgentName(conf_file);
-	if (name.empty ()) {
-		name = Pandora_Windows_Info::getSystemName ();
+	if (reload_modules) {
+		this->modules = new Pandora_Module_List (conf_file);
 	}
-	name_agent = "PANDORA_AGENT=" + name;
-	putenv(name_agent.c_str());
+	delete []all_conf;
+    
+    // Get the agent alias.
+	agent_alias = conf->getValue ("agent_alias");
+	if (agent_alias == "") {
+        agent_alias_cmd = conf->getValue ("agent_alias_cmd");
+        if (agent_alias_cmd != "") {
+            agent_alias_cmd = "cmd.exe /c \"" + agent_alias_cmd + "\"";
+			static string temp_agent_alias = getAgentNameFromCmdExec(agent_alias_cmd);
+
+			// Delete new line and carriage return.
+			pos = temp_agent_alias.find("\n");
+			if(pos != string::npos) {
+				temp_agent_alias.erase(pos, temp_agent_alias.size () - pos);
+			}
+			pos = temp_agent_alias.find("\r");
+			if(pos != string::npos) {
+				temp_agent_alias.erase(pos, temp_agent_alias.size () - pos);
+			}
+
+			// Remove leading and trailing white spaces.
+			temp_agent_alias = trim(temp_agent_alias);
+			if (temp_agent_alias != "") {
+				agent_alias = temp_agent_alias;
+            }
+        } else {
+            agent_alias = Pandora_Windows_Info::getSystemName ();
+        }
+	}
+	this->conf->setValue("agent_alias", agent_alias);
+    
+	// Get the agent name.
+	agent_name = conf->getValue ("agent_name");
+	if (agent_name == "") {
+		agent_name_cmd = conf->getValue ("agent_name_cmd");
+
+		// Random name.
+		if (agent_name_cmd == "__rand__") {
+			agent_name = generateAgentName();
+			this->conf->setValue("agent_name", agent_name);
+			conf->updateFile("agent_name", agent_name); // Write random names to disk!
+		}
+		// Name from command.
+		else if (agent_name_cmd != "") {
+			agent_name_cmd = "cmd.exe /c \"" + agent_name_cmd + "\"";
+			static string temp_agent_name = getAgentNameFromCmdExec(agent_name_cmd);
+
+			// Delete new line and carriage return.
+			pos = temp_agent_name.find("\n");
+			if(pos != string::npos) {
+				temp_agent_name.erase(pos, temp_agent_name.size () - pos);
+			}
+			pos = temp_agent_name.find("\r");
+			if(pos != string::npos) {
+				temp_agent_name.erase(pos, temp_agent_name.size () - pos);
+			}
+
+			// Remove leading and trailing white spaces.
+			temp_agent_name = trim(temp_agent_name);
+			if (temp_agent_name != "") {
+				agent_name = temp_agent_name;
+				this->conf->setValue("agent_name", agent_name);
+			}
+		}
+	}
+
+	// Fall back to the hostname if agent_name is still empty.
+	if (agent_name == "") {
+		agent_name = Pandora_Windows_Info::getSystemName ();
+		this->conf->setValue("agent_name", agent_name);
+	}
+
+	pandora_agent = "PANDORA_AGENT=" + agent_name;
+	putenv(pandora_agent.c_str());
 	
 	debug = conf->getValue ("debug");
 	setPandoraDebug (is_enabled (debug));
@@ -383,38 +464,18 @@ Pandora_Windows_Service::launchTentacleProxy() {
 string
 Pandora_Windows_Service::getXmlHeader () {
 	char          timestamp[20];
-	string        agent_name, os_name, os_version, encoding, value, xml, address, parent_agent_name, agent_name_cmd;
+	string        agent_name, os_name, os_version, encoding, value, xml, address, parent_agent_name, agent_name_cmd, agent_alias;
 	string        custom_id, url_address, latitude, longitude, altitude, position_description, gis_exec, gis_result, agent_mode;
+	string        group_password, group_id, ehorus_conf;
 	time_t        ctime;
 	struct tm     *ctime_tm = NULL;
 	int pos;
 	
 	// Get agent name
 	agent_name = conf->getValue ("agent_name");
-	if (agent_name == "") {
-		agent_name = Pandora_Windows_Info::getSystemName ();
-	}
 
-	agent_name_cmd = conf->getValue ("agent_name_cmd");
-	if (agent_name_cmd != "") {
-		agent_name_cmd = "cmd.exe /c \"" + agent_name_cmd + "\"";
-		static string temp_agent_name = getAgentNameFromCmdExec(agent_name_cmd);
-		// Delete carriage return if is provided
-		pos = temp_agent_name.find("\n");
-		if(pos != string::npos) {
-			temp_agent_name.erase(pos, temp_agent_name.size () - pos);
-		}
-		pos = temp_agent_name.find("\r");
-		if(pos != string::npos) {
-			temp_agent_name.erase(pos, temp_agent_name.size () - pos);
-		}
-		// Remove white spaces of the first and last.
-		temp_agent_name = trim(temp_agent_name);
-
-		if (temp_agent_name != "") {
-			agent_name = temp_agent_name;
-		}
-        }
+	// Get agent alias
+	agent_alias = conf->getValue ("agent_alias");
 
 	// Get parent agent name
 	parent_agent_name = conf->getValue ("parent_agent_name");
@@ -442,6 +503,7 @@ Pandora_Windows_Service::getXmlHeader () {
 
 	xml = "<?xml version=\"1.0\" encoding=\"" + encoding + "\" ?>\n" +
 	      "<agent_data agent_name=\"" + agent_name +
+	      "\" agent_alias=\"" + agent_alias +
 	      "\" description=\"" + conf->getValue ("description") +
 	      "\" version=\"" + getPandoraAgentVersion ();
 
@@ -476,6 +538,20 @@ Pandora_Windows_Service::getXmlHeader () {
 	if (url_address != "") {
 		xml += "\" url_address=\"";
 		xml += url_address;
+	}
+
+	// Get group password
+	group_password = conf->getValue ("group_password");
+	if (group_password != "") {
+		xml += "\" group_password=\"";
+		xml += group_password;
+	}
+
+	// Get Group ID
+	group_id = conf->getValue ("group_id");
+	if (group_id != "") {
+		xml += "\" group_id=\"";
+		xml += group_id;
 	}
 	
 	// Get Coordinates
@@ -559,6 +635,7 @@ Pandora_Windows_Service::getXmlHeader () {
 	       "\" os_version=\"" + os_version +
 	       "\" group=\"" + conf->getValue ("group") +
 	       "\" parent_agent_name=\"" + conf->getValue ("parent_agent_name") + 
+	       "\" secondary_groups=\"" + conf->getValue ("secondary_groups") + 
 	       "\" agent_mode=\"" + agent_mode + 
 	       "\">\n";
 	return xml;
@@ -1477,35 +1554,8 @@ Pandora_Windows_Service::checkConfig (string file) {
 	}
 
 	/* Get agent name */
-	 tmp = checkAgentName(file);
-	if (tmp.empty ()) {
-		tmp = Pandora_Windows_Info::getSystemName ();
-	}
-	agent_name = tmp;
+	agent_name = conf->getValue ("agent_name");
 
-	/* Get agent name cmd */
-	tmp = conf->getValue ("agent_name_cmd");
-	if (!tmp.empty ()) {
-		tmp = "cmd.exe /c \"" + tmp + "\"";
-		tmp = getCoordinatesFromCmdExec(tmp);
-
-		// Delete carriage return if is provided
-		pos = tmp.find("\n");
-		if(pos != string::npos) {
-			tmp.erase(pos, tmp.size () - pos);
-		}
-		pos = tmp.find("\r");
-		if(pos != string::npos) {
-			tmp.erase(pos, tmp.size () - pos);
-		}
-
-		// Remove white spaces of the first and last.
-		tmp = trim (tmp);
-
-		if (tmp != "") {
-			agent_name = tmp;
-		}
-	}
 
 	/* Error getting agent name */
 	if (agent_name.empty ()) {
@@ -1626,6 +1676,7 @@ Pandora_Windows_Service::sendXml (Pandora_Module_List *modules) {
 	string            xml_filename, random_integer;
 	string            tmp_filename, tmp_filepath;
 	string            encoding;
+	string            ehorus_conf, eh_key;
 	static HANDLE     mutex = 0; 
     ULARGE_INTEGER    free_bytes;
     double            min_free_bytes = 0;
@@ -1645,6 +1696,12 @@ Pandora_Windows_Service::sendXml (Pandora_Module_List *modules) {
 	
 	data_xml = getXmlHeader ();
 	
+	/* Get the eHorus key. */
+	ehorus_conf = conf->getValue ("ehorus_conf");
+	if (ehorus_conf != "") {
+		eh_key = getEHKey(ehorus_conf);
+	}
+	
 	/* Write custom fields */
 	int c = 1;
 	
@@ -1654,8 +1711,8 @@ Pandora_Windows_Service::sendXml (Pandora_Module_List *modules) {
 	sprintf(token_value_token, "custom_field%d_value", c);
 	string token_name = conf->getValue (token_name_token);
 	string token_value = conf->getValue (token_value_token);
-	
-	if(token_name != "" && token_value != "") {
+
+	if((token_name != "" && token_value != "") || eh_key != "") {
 		data_xml += "<custom_fields>\n";
 		while(token_name != "" && token_value != "") {
 			data_xml += "	<field>\n";
@@ -1669,6 +1726,15 @@ Pandora_Windows_Service::sendXml (Pandora_Module_List *modules) {
 			token_name = conf->getValue (token_name_token);
 			token_value = conf->getValue (token_value_token);
 		}
+
+		/* Add the eHorus key as a custom field. */
+		if (eh_key != "") {
+			data_xml += "	<field>\n";
+			data_xml += "		<name>eHorusID</name>\n";
+			data_xml += "		<value><![CDATA["+ eh_key +"]]></value>\n";
+			data_xml += "	</field>\n";
+		}
+
 		data_xml += "</custom_fields>\n";
 	}
 	
@@ -1691,10 +1757,6 @@ Pandora_Windows_Service::sendXml (Pandora_Module_List *modules) {
 	/* Generate temporal filename */
 	random_integer = inttostr (rand());
 	tmp_filename = conf->getValue ("agent_name");
-	
-	if (tmp_filename == "") {
-		tmp_filename = Pandora_Windows_Info::getSystemName ();
-	}
 	tmp_filename += "." + random_integer + ".data";
 
 	xml_filename = conf->getValue ("temporal");
@@ -1787,7 +1849,7 @@ Pandora_Windows_Service::sendBufferedXml (string path) {
 }
 
 void
-Pandora_Windows_Service::pandora_run_broker (string config) {
+Pandora_Windows_Service::pandora_run_broker (string config, long executions) {
 	Pandora_Agent_Conf  *conf = NULL;
 	string server_addr;
 	unsigned char data_flag = 0;
@@ -1807,35 +1869,46 @@ Pandora_Windows_Service::pandora_run_broker (string config) {
 
 	server_addr = conf->getValue ("server_ip");
 
-	if (this->modules != NULL) {
-		this->modules->goFirst ();
+	if (this->broker_modules != NULL && !(conf->getValue ("standby") == "1" && !getPandoraDebug())) {
+		this->broker_modules->goFirst ();
 	
-		while (! this->modules->isLast ()) {
+		while (! this->broker_modules->isLast ()) {
 			Pandora_Module *module;
 		
-			module = this->modules->getCurrentValue ();
-			
+			module = this->broker_modules->getCurrentValue ();
+
+			/* Keep executions matching main agent */
+			module->setExecutions(executions);
+
 			/* Check preconditions */
 			if (module->evaluatePreconditions () == 0) {
 				pandoraDebug ("Preconditions not matched for module %s", module->getName ().c_str ());
 				module->setNoOutput ();
-				this->modules->goNext ();
+				this->broker_modules->goNext ();
 				continue;
 			}
 	
-			/* Check preconditions */			
-			if (module->checkCron (module->getInterval (), atoi (conf->getValue ("interval").c_str())) == 0) {
+			/* Check cron */			
+			if (!module->checkCron (module->getInterval () * atoi (conf->getValue ("interval").c_str()))) {
 				pandoraDebug ("Cron not matched for module %s", module->getName ().c_str ());
 				module->setNoOutput ();
-				this->modules->goNext ();
+				this->broker_modules->goNext ();
 				continue;
 			}
 			
+			/* Check async */
+			if (module->getAsync()) {
+				pandoraDebug ("Forbidden async module %s in broker agents", module->getName ().c_str ());
+				module->setNoOutput ();
+				this->broker_modules->goNext ();
+				continue;
+			}
+
 			pandoraDebug ("Run %s", module->getName ().c_str ());
 			module->run ();
 			if (! module->hasOutput ()) {
 				module->setNoOutput ();
-				this->modules->goNext ();
+				this->broker_modules->goNext ();
 				continue;
 			}
 			
@@ -1848,7 +1921,7 @@ Pandora_Windows_Service::pandora_run_broker (string config) {
 			intensive_match = module->evaluateIntensiveConditions ();
 			if (intensive_match == module->getIntensiveMatch () && module->getTimestamp () + module->getInterval () * this->interval_sec > this->run_time) {
 				module->setNoOutput ();
-				this->modules->goNext ();
+				this->broker_modules->goNext ();
 				continue;
 			}
 			module->setIntensiveMatch (intensive_match);
@@ -1863,15 +1936,15 @@ Pandora_Windows_Service::pandora_run_broker (string config) {
 			/* At least one module has data */
 			data_flag = 1;
 
-			this->modules->goNext ();
+			this->broker_modules->goNext ();
 		}
 	}
 
-	if (data_flag == 1 || this->timestamp + this->interval_sec <= this->run_time) {
+	if ((data_flag == 1 || this->timestamp + this->interval_sec <= this->run_time) && !(conf->getValue ("standby") == "1" && !getPandoraDebug())) {
 		
 		// Send the XML
 		if (!server_addr.empty ()) {
-		  this->sendXml (this->modules);
+		  this->sendXml (this->broker_modules);
 		}
 	}
 	
@@ -1927,7 +2000,7 @@ Pandora_Windows_Service::pandora_run (int forced_run) {
 
 	execution_number++;
 
-	if (this->modules != NULL) {
+	if (this->modules != NULL && !(conf->getValue ("standby") == "1" && !getPandoraDebug())) {
 		this->modules->goFirst ();
 	
 		while (! this->modules->isLast ()) {
@@ -1943,8 +2016,8 @@ Pandora_Windows_Service::pandora_run (int forced_run) {
 				continue;
 			}
 	
-			/* Check preconditions */			
-			if (module->checkCron (module->getInterval (), atoi (conf->getValue ("interval").c_str())) == 0) {
+			/* Check cron */			
+			if (!module->checkCron (module->getInterval () * atoi (conf->getValue ("interval").c_str()))) {
 				pandoraDebug ("Cron not matched for module %s", module->getName ().c_str ());
 				module->setNoOutput ();
 				this->modules->goNext ();
@@ -1987,7 +2060,7 @@ Pandora_Windows_Service::pandora_run (int forced_run) {
 		}
 	}
 
-	if (forced_run == 1 || data_flag == 1 || this->timestamp + this->interval_sec <= this->run_time) {
+	if ((forced_run == 1 || data_flag == 1 || this->timestamp + this->interval_sec <= this->run_time) && !(conf->getValue ("standby") == "1" && !getPandoraDebug())) {
 				
 		// Send the XML
 		if (!server_addr.empty ()) {
@@ -2004,13 +2077,13 @@ Pandora_Windows_Service::pandora_run (int forced_run) {
 	check_broker_agents(all_conf);
 	for (i=0;i<num;i++){
 		pandora_init_broker(all_conf[i]);
-		pandora_run_broker(all_conf[i]);
+		pandora_run_broker(all_conf[i], execution_number);
 	}
 	delete []all_conf;
 	
 	/* Reload the original configuration */
 	if (num != 0) {
-		pandora_init ();
+		pandora_init (false);
 	}
 
 	/* Reset time reference if necessary */
@@ -2026,6 +2099,37 @@ Pandora_Windows_Service::getConf () {
 	return this->conf;
 }
 
+string
+Pandora_Windows_Service::getEHKey (string ehorus_conf) {
+	string buffer, eh_key;
+	std::ifstream ifs(ehorus_conf.c_str());
+	int pos;
+
+	if (! ifs.is_open ()) {
+		pandoraDebug ("Error opening eHorus configuration file %s", ehorus_conf.c_str ());
+		return eh_key;
+	}
+
+	/* Look for the eHorus key. */
+	while (ifs.good ()) {
+		getline (ifs, buffer);
+
+		/* Skip comments. */
+		if (buffer.empty() || buffer.at(0) == '#') {
+			continue;
+		}
+
+		pos = buffer.find("eh_key");
+		if (pos != string::npos){
+			eh_key = buffer.substr(pos + 7); /* pos + strlen("eh_key ") */
+			eh_key = trim(eh_key);
+			return eh_key;
+		}
+	}
+
+	return eh_key;
+}
+
 long
 Pandora_Windows_Service::getInterval () {
 	return this->interval;
@@ -2036,3 +2140,17 @@ Pandora_Windows_Service::getIntensiveInterval () {
 	return this->intensive_interval;
 }
 
+string
+Pandora_Windows_Service::generateAgentName () {
+	stringstream data;
+	char digest[SHA256_HEX_LENGTH + 1];
+
+    std::srand(std::time(0));
+	data << this->conf->getValue("agent_alias") <<
+	        this->conf->getValue("server_ip") <<
+		    time(NULL) <<
+		    std::rand();
+
+	sha256(data.str().c_str(), digest);
+	return std::string(digest);
+}

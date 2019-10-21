@@ -54,8 +54,8 @@ sub new ($$;$) {
 
 	# Check for a WMI client
 	if (system ($config->{'wmi_client'} . " >$DEVNULL 2>&1") >> 8 != 1) {
-		logger ($config, ' [E] ' . $config->{'wmi_client'} . " not found. Pandora FMS WMI Server needs a DCOM/WMI client.", 1);
-		print_message ($config, ' [E] ' . $config->{'wmi_client'} . " not found. Pandora FMS WMI Server needs a DCOM/WMI client.", 1);
+		logger ($config, ' [E] ' . $config->{'wmi_client'} . " not found. " . $config->{'rb_product_name'} . " WMI Server needs a DCOM/WMI client.", 1);
+		print_message ($config, ' [E] ' . $config->{'wmi_client'} . " not found. " . $config->{'rb_product_name'} . " WMI Server needs a DCOM/WMI client.", 1);
 		return undef;
 	}
 
@@ -79,7 +79,7 @@ sub run ($) {
 	my $self = shift;
 	my $pa_config = $self->getConfig ();
 
-	print_message ($pa_config, " [*] Starting Pandora FMS WMI Server.", 1);
+	print_message ($pa_config, " [*] Starting " . $pa_config->{'rb_product_name'} . " WMI Server.", 1);
 	$self->setNumThreads ($pa_config->{'wmi_threads'});
 	$self->SUPER::run (\@TaskQueue, \%PendingTasks, $Sem, $TaskSem);
 }
@@ -142,13 +142,21 @@ sub data_consumer ($$) {
 	my $module = get_db_single_row ($dbh, 'SELECT * FROM tagente_modulo WHERE id_agente_modulo = ?', $module_id);
 	return unless defined $module;
 	
+	# Initialize macros.
+	my %macros = (
+		'_agentcustomfield_\d+_' => undef,
+	);
+
 	# Build command to execute
 	my $wmi_command = '';
 	if (defined ($module->{'plugin_pass'}) && $module->{'plugin_pass'} ne "") {
-		$wmi_command = $pa_config->{'wmi_client'} . ' -U "' . $module->{'plugin_user'} . '"%"' . pandora_output_password($pa_config, $module->{'plugin_pass'}) . '"';
+		my $user = safe_output(subst_column_macros($module->{'plugin_user'}, \%macros, $pa_config, $dbh, undef, $module));
+		my $pass = safe_output(pandora_output_password($pa_config, subst_column_macros($module->{'plugin_pass'}, \%macros, $pa_config, $dbh, undef, $module)));
+		$wmi_command = $pa_config->{'wmi_client'} . ' -U "' . $user . '"%"' . $pass . '"';
 	}
 	elsif (defined ($module->{'plugin_user'}) && $module->{'plugin_user'} ne "") {
-		$wmi_command = $pa_config->{'wmi_client'} . ' -U "' . $module->{'plugin_user'} . '"';
+		my $user = safe_output(subst_column_macros($module->{'plugin_user'}, \%macros, $pa_config, $dbh, undef, $module));
+		$wmi_command = $pa_config->{'wmi_client'} . ' -U "' . $user . '"';
 	}
 	else {
 		$wmi_command = $pa_config->{'wmi_client'} . ' -N';
@@ -222,7 +230,7 @@ sub data_consumer ($$) {
 		$agent_os_version = $pa_config->{'servername'}.'_WMI';
 	}
 
-	pandora_update_agent ($pa_config, $timestamp, $module->{'id_agente'},  $agent_os_version, $pa_config->{'version'}, -1, $dbh);
+	pandora_update_agent ($pa_config, $timestamp, $module->{'id_agente'}, undef, undef, -1, $dbh);
 }
 
 1;

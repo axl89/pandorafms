@@ -22,9 +22,8 @@
 				result = [];
 
 			// Throw errors
-			var retrieveDataOject = function (dataObjects) {
+			var retrieveDataOject = function (dataObjects, custom) {
 				var result;
-
 				if (typeof dataObjects === 'undefined')
 					throw new Error('Empty parameter');
 
@@ -34,8 +33,13 @@
 				}
 				if (dataObjects.length > 1) {
 					dataObjects.forEach(function (element) {
-						if (/^Avg.:/i.test(element.label))
+						if(custom){
+							if (/^Avg.:/i.test(element.label)){
+								result = element;
+							}
+						} else {
 							result = element;
+						}
 					});
 
 					// If the avg set is missing, retrieve the first set
@@ -71,22 +75,36 @@
 				 * }
 				 */
 				if (type === 'csv') {
-
 					result = {
-						head: ['date', 'value','label'],
+						head: ['timestap', 'date', 'value', 'label'],
 						data: []
 					};
 
 					dataObject.data.forEach(function (item, index) {
-						var date = '', value = item[1];
+						var timestap = item[0];
 
-						// Long labels are preferred
-						if (typeof  plot.getOptions().export.labels_long[index] !== 'undefined')
-							date =  plot.getOptions().export.labels_long[index];
-						else if (typeof labels[index] !== 'undefined')
-							date = labels[index];
+						var d = new Date(item[0]);
+						var monthNames = [
+							"Jan", "Feb", "Mar",
+							"Apr", "May", "Jun",
+							"Jul", "Aug", "Sep",
+							"Oct", "Nov", "Dec"
+						];
 
-						result.data.push([date, value,dataObject.label]);
+						date_format = 	(d.getDate() <10?'0':'') + d.getDate() + " " +
+										monthNames[d.getMonth()] + " " +
+										d.getFullYear() + " " +
+										(d.getHours()<10?'0':'') + d.getHours() + ":" +
+										(d.getMinutes()<10?'0':'') + d.getMinutes() + ":" +
+										(d.getSeconds()<10?'0':'') + d.getSeconds();
+
+						var date  = date_format;
+
+						var value = item[1];
+
+						var clean_label = plot.getOptions().export.labels_long[dataObject.label];
+						clean_label = clean_label.replace( new RegExp("&#x20;", "g"), " ");
+						result.data.push([timestap, date, value, clean_label]);
 					});
 				}
 				/* [
@@ -137,17 +155,17 @@
 
 			try {
 				var elements = [];
-				var custom_graph = $('input:hidden[name=custom_graph]').value;
+				var custom_graph = $('#hidden-custom_graph').val();
 
 				if (custom_graph) {
-					dataObject = retrieveDataOject(dataObjects);
+					dataObject = retrieveDataOject(dataObjects,0);
 					dataObjects.forEach(function (element) {
-						elements.push(processDataObject(element));
+						elements.push(processDataObject(element));					
 					});
 					graphData = elements;
 				}
 				else {
-					dataObject = retrieveDataOject(dataObjects);
+					dataObject = retrieveDataOject(dataObjects,1);
 					elements.push(processDataObject(dataObject));
 					graphData = elements;
 				}
@@ -186,7 +204,7 @@
 
 				$form
 					.prop('method', 'POST')
-					.prop('action', plot.getOptions().export.homeurl + '/include/graphs/export_data.php')
+					.prop('action', plot.getOptions().export.homeurl + 'include/graphs/export_data.php')
 					.append($dataInput, $typeInput, $separatorInput, $excelInput)
 					.hide()
 					// Firefox made me write into the DOM for this :(
@@ -195,10 +213,9 @@
 			}
 			catch (e) {
 				alert('There was an error exporting the data');
-				console.log(e);
 			}
 		}
-		
+
 		plot.exportDataJSON = function (args) {
 			//amount = plot.getOptions().export.type,
 			//options = options || {};
@@ -377,7 +394,7 @@
 
 				$form
 					.prop('method', 'POST')
-					.prop('action', plot.getOptions().export.homeurl + '/include/graphs/export_data.php')
+					.prop('action', plot.getOptions().export.homeurl + 'include/graphs/export_data.php')
 					.append($dataInput, $typeInput, $separatorInput, $excelInput)
 					.hide()
 					// Firefox made me write into the DOM for this :(
@@ -386,11 +403,10 @@
 			}
 			catch (e) {
 				alert('There was an error exporting the data');
-				console.log(e);
 			}
 		}
 	}
-    
+
     $.plot.plugins.push({
         init: init,
         options: options,
