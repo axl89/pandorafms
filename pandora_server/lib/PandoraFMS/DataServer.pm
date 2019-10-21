@@ -799,11 +799,20 @@ sub process_module_data ($$$$$$$$$$) {
 		# Control NULL columns
 		$module->{'descripcion'} = '' unless defined ($module->{'descripcion'});
 		$module->{'extended_info'} = '' unless defined ($module->{'extended_info'});
+		$module->{'str_warning'} = '' unless defined ($module->{'str_warning'});
+		$module->{'str_critical'} = '' unless defined ($module->{'str_critical'});
+		$module->{'critical_instructions'} = '' unless defined ($module->{'critical_instructions'});
+		$module->{'warning_instructions'} = '' unless defined ($module->{'warning_instructions'});
+		$module->{'unknown_instructions'} = '' unless defined ($module->{'unknown_instructions'});
 		
 		# Set default values
 		$module_conf->{'descripcion'} = $module->{'descripcion'} unless defined ($module_conf->{'descripcion'});
 		$module_conf->{'extended_info'} = $module->{'extended_info'} unless defined ($module_conf->{'extended_info'});
 		$module_conf->{'module_interval'} = $module->{'module_interval'} unless defined ($module_conf->{'module_interval'});
+		$module_conf->{'min_critical'} = $module->{'min_critical'} unless defined ($module_conf->{'min_critical'});
+		$module_conf->{'max_critical'} = $module->{'max_critical'} unless defined ($module_conf->{'max_critical'});
+		$module_conf->{'min_warning'} = $module->{'min_warning'} unless defined ($module_conf->{'min_warning'});
+		$module_conf->{'max_warning'} = $module->{'max_warning'} unless defined ($module_conf->{'max_warning'});
 	}
 	
 	# Check if the module is policy linked to update it or not
@@ -893,13 +902,25 @@ sub update_module_configuration ($$$$) {
 	my ($pa_config, $dbh, $module, $module_conf) = @_;
 
 	# Update if at least one of the configuration tokens has changed
-	foreach my $conf_token ('descripcion', 'extended_info', 'module_interval') {
+	foreach my $conf_token ('descripcion', 'extended_info', 'module_interval', 'min_warning', 'max_warning', 'str_warning', 'min_critical', 'max_critical', 'str_critical', 'critical_instructions', 'warning_instructions', 'unknown_instructions' ) {
 		if ($module->{$conf_token} ne $module_conf->{$conf_token}) {
 			logger ($pa_config, "Updating configuration for module '" . safe_output($module->{'nombre'})	. "'.", 10);
 
-			db_do ($dbh, 'UPDATE tagente_modulo SET descripcion = ?, extended_info = ?, module_interval = ?
-				WHERE id_agente_modulo = ?', $module_conf->{'descripcion'} eq '' ? $module->{'descripcion'} : $module_conf->{'descripcion'},
-				$module_conf->{'extended_info'}, $module_conf->{'module_interval'}, $module->{'id_agente_modulo'});
+			db_do ($dbh, 'UPDATE tagente_modulo SET descripcion = ?, extended_info = ?, module_interval = ?, min_warning = ?, max_warning = ?, str_warning = ?, min_critical = ?, max_critical = ?, str_critical = ?, critical_instructions = ?, warning_instructions = ?, unknown_instructions = ? WHERE id_agente_modulo = ?',
+                $module_conf->{'descripcion'} eq '' ? $module->{'descripcion'} : $module_conf->{'descripcion'},
+                $module_conf->{'extended_info'},
+                $module_conf->{'module_interval'},
+                $module->{'id_agente_modulo'},
+                $module_conf->{'min_warning'},
+                $module_conf->{'max_warning'},
+                $module_conf->{'str_warning'},
+                $module_conf->{'min_critical'},
+                $module_conf->{'max_critical'},
+                $module_conf->{'str_critical'},
+                $module_conf->{'critical_instructions'},
+                $module_conf->{'warning_instructions'},
+                $module_conf->{'unknown_instructions'},
+            );
 			last;
 		}
 	}
