@@ -1,0 +1,248 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+
+	<title>Pandora FMS - the Flexible Monitoring System</title>
+		<meta http-equiv="expires" content="never" />
+		<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+		<meta http-equiv="Content-Style-Type" content="text/css" />
+		<meta name="resource-type" content="document" />
+		<meta name="distribution" content="global" />
+		<meta name="author" content="Ártica ST" />
+		<meta name="copyright" content="(c) Ártica ST" />
+		<meta name="robots" content="index, follow" /><link rel="icon" href="images/pandora.ico" type="image/ico" />	
+		<link rel="shortcut icon" href="images/pandora.ico" type="image/x-icon" />
+		<link rel="alternate" href="operation/events/events_rss.php" title="Pandora RSS Feed" type="application/rss+xml" />
+	<link rel="stylesheet" href="http://localhost:32770/pandora_console/include/styles/common.css" type="text/css" />
+	<link rel="stylesheet" href="http://localhost:32770/pandora_console/include/styles/menu.css" type="text/css" />
+	<link rel="stylesheet" href="http://localhost:32770/pandora_console/include/styles/tables.css" type="text/css" />
+	<link rel="stylesheet" href="http://localhost:32770/pandora_console/include/styles/pandora.css" type="text/css" />
+	<link rel="stylesheet" href="http://localhost:32770/pandora_console/include/styles/login.css" type="text/css" />
+	<link rel="stylesheet" href="http://localhost:32770/pandora_console/include/styles/js/introjs.css" type="text/css" />
+	<link rel="stylesheet" href="http://localhost:32770/pandora_console/include/styles/js/jquery-ui.min.css" type="text/css" />
+	<link rel="stylesheet" href="http://localhost:32770/pandora_console/include/styles/js/jquery-ui.min.css" type="text/css" />
+	<link rel="stylesheet" href="http://localhost:32770/pandora_console/include/styles/js/jquery-ui_custom.css" type="text/css" />
+	<script type="text/javascript" src="http://localhost:32770/pandora_console/include/javascript/jquery-3.3.1.min.js"></script>
+	<script type="text/javascript" src="http://localhost:32770/pandora_console/include/javascript/jquery.pandora.js"></script>
+	<script type="text/javascript" src="http://localhost:32770/pandora_console/include/javascript/jquery-ui.min.js"></script>
+	<script type="text/javascript" src="http://localhost:32770/pandora_console/include/javascript/jquery.countdown.js"></script>
+	<script type="text/javascript" src="http://localhost:32770/pandora_console/include/javascript/pandora.js"></script>
+	<script type="text/javascript" src="http://localhost:32770/pandora_console/include/javascript/encode_decode_base64.js"></script>
+	<script type="text/javascript" src="http://localhost:32770/pandora_console/include/javascript/webchat.js"></script>
+	<script type="text/javascript" src="http://localhost:32770/pandora_console/include/javascript/qrcode.js"></script>
+	<script type="text/javascript" src="http://localhost:32770/pandora_console/include/javascript/intro.js"></script>
+	<script type="text/javascript" src="http://localhost:32770/pandora_console/include/javascript/clippy.js"></script>
+	<script type="text/javascript" src="http://localhost:32770/pandora_console/include/javascript/underscore-min.js"></script>
+	
+			<!--[if lte IE 8]><script language="javascript" type="text/javascript" src="http://localhost:32770/pandora_console/include/graphs/flot/excanvas.js"></script><![endif]-->
+			<script language="javascript" type="text/javascript" src="http://localhost:32770/pandora_console/include/graphs/flot/jquery.flot.js"></script>
+			<script language="javascript" type="text/javascript" src="http://localhost:32770/pandora_console/include/graphs/flot/jquery.flot.min.js"></script>
+			<script language="javascript" type="text/javascript" src="http://localhost:32770/pandora_console/include/graphs/flot/jquery.flot.time.js"></script>
+			<script language="javascript" type="text/javascript" src="http://localhost:32770/pandora_console/include/graphs/flot/jquery.flot.pie.js"></script>
+			<script language="javascript" type="text/javascript" src="http://localhost:32770/pandora_console/include/graphs/flot/jquery.flot.crosshair.min.js"></script>
+			<script language="javascript" type="text/javascript" src="http://localhost:32770/pandora_console/include/graphs/flot/jquery.flot.stack.min.js"></script>
+			<script language="javascript" type="text/javascript" src="http://localhost:32770/pandora_console/include/graphs/flot/jquery.flot.selection.min.js"></script>
+			<script language="javascript" type="text/javascript" src="http://localhost:32770/pandora_console/include/graphs/flot/jquery.flot.resize.min.js"></script>
+			<script language="javascript" type="text/javascript" src="http://localhost:32770/pandora_console/include/graphs/flot/jquery.flot.threshold.js"></script>
+			<script language="javascript" type="text/javascript" src="http://localhost:32770/pandora_console/include/graphs/flot/jquery.flot.threshold.multiple.js"></script>
+			<script language="javascript" type="text/javascript" src="http://localhost:32770/pandora_console/include/graphs/flot/jquery.flot.symbol.min.js"></script>
+			<script language="javascript" type="text/javascript" src="http://localhost:32770/pandora_console/include/graphs/flot/jquery.flot.exportdata.pandora.js"></script>
+			<script language="javascript" type="text/javascript" src="http://localhost:32770/pandora_console/include/graphs/flot/jquery.flot.axislabels.js"></script>
+			<script language="javascript" type="text/javascript" src="http://localhost:32770/pandora_console/include/graphs/flot/pandora.flot.js"></script>
+			<script type='text/javascript'>
+			var precision_graph = 1;
+			function pieHover(event, pos, obj)
+			{
+				if (!obj)
+					return;
+				percent = parseFloat(obj.series.percent).toFixed(2);
+				$('#hover').html('<span style=\'font-weight: bold; color: '+obj.series.color+'\'>'+obj.series.label+' ('+percent+'%)</span>');
+				$('.legendLabel').each(function() {
+					if ($(this).html() == obj.series.label) {
+						$(this).css('font-weight','bold');
+					}
+					else {
+						$(this).css('font-weight','');
+					}
+				});
+			}
+
+			function pieClick(event, pos, obj)
+			{
+				if (!obj)
+					return;
+				percent = parseFloat(obj.series.percent).toFixed(2);
+				alert(''+obj.series.label+': '+obj.series.data[0][1]+' ('+percent+'%)');
+			}
+			</script><!--[if gte IE 6]>
+		<link rel="stylesheet" href="include/styles/ie.css" type="text/css"/>
+		<![endif]--><script type="text/javascript">var dispositivo = navigator.userAgent.toLowerCase();if( dispositivo.search(/iphone|ipod|ipad|android/) > -1 ){document.location = "http://localhost:32770/pandora_console/mobile";  }</script></head>
+<body><style>
+	@keyframes login_move {
+        from {margin-left: 10%;margin-right: 10%;opacity:0.1}
+        to {margin-left: 5%;margin-right: 5%;opacity:1}
+	}
+	
+	
+	div.container_login{
+		animation-name: login_move;
+		animation-duration: 3s;
+	}
+	</style><div id="login_body" ><div id="header_login"><div id="list_icon_docs_support"><ul><li><a href="http://wiki.pandorafms.com/" target="_blank"><img src="images/icono_docs.png" alt="docs"></a></li><li><a href="http://wiki.pandorafms.com/" target="_blank">Docs</li><li id="li_margin_left"><a href="https://pandorafms.com/monitoring-services/support/" target="_blank"><img src="images/icono_support.png" alt="support"></a></li><li>Support</li></ul></div></div><div class="container_login"><div class="login_page"><form method="post" action="http://localhost:32770/pandora_console/index.php?login=1&amp;sec=gusuarios&amp;sec2=godmode/users/configure_user&amp;pure=0" ><div class="login_logo_icon"><a href="http://www.pandorafms.com"><img src="images/custom_logo_login/login_logo_v7.png" data-title="Go to Pandora FMS Website" data-use_title_for_force_title="1" class="login_logo forced_title" style="border:0px;" alt="logo" /></a></div><div class="login_nick"><input type="text" autocomplete="off" placeholder="User" name="nick" value="" id="nick" size="10" maxlength="255" /></div><div class="login_pass"><input type="password" autocomplete="off" autocomplete="off" placeholder="Password" name="pass" value="" id="pass" size="10" maxlength="255" /></div><div class="login_button"><input type="submit" id="submit-login_button" name="login_button" value="Login" class="next_login" /></div></form></div><div class="login_data"><div class ="text_banner_login"><div><span class="span1 pandora_upper">WELCOME TO Pandora FMS</span></div><div><span class="span2">NEXT GENERATION</span></div></div><div class ="img_banner_login"><img src="images/splash_image_default.png" style="border:0px;" alt="logo" /></div></div></div><div id="ver_num">v7.0NG.742</div></div>
+<div id="forced_title_layer" style="display:none;" class="forced_title_layer"></div><script type="text/javascript" language="javascript">    
+    function show_normal_menu() {
+        document.getElementById('input_saml').style.display = 'none';
+        document.getElementById('log_nick').style.display = 'block';
+        document.getElementById('log_pass').style.display = 'block';
+        document.getElementById('log_button').style.display = 'block';
+        document.getElementById('remove_button').style.display = 'none';
+        document.getElementById('log_nick').className = 'login_nick';
+        document.getElementById('log_pass').className = 'login_pass';
+    }
+
+    switch ("login") {
+        case 'error_authconfig':
+        case 'error_dbconfig':
+        case 'error_emptyconfig':
+        case 'error_noconfig':
+        case 'error_install':
+        case 'error_perms':
+        case 'homedir_bad_defined':
+        case 'homeurl_bad_defined':
+            // Auto popup
+            $(document).ready (function () {
+                $(function() {
+                    $("#modal_alert").dialog ({
+                        title: $('#log_title').html(),
+                        resizable: true,
+                        draggable: false,
+                        modal: true,
+                        width: 600,
+                        overlay: {
+                            opacity: 0.5,
+                            background: "black"
+                        }
+                    });
+                });
+
+                $("#submit-hide-login-error").click (function () {
+                    $("#modal_alert" ).dialog('close');
+                    
+                });
+            });
+
+        break;
+
+        case 'logout':
+            $(document).ready (function () {
+                $(function() {
+                    $("#login_logout").dialog({
+                        resizable: true,
+                        draggable: true,
+                        modal: true,
+                        height: 220,
+                        width: 528,
+                        clickOutside: true,
+                        overlay: {
+                            opacity: 0.5,
+                            background: "black"
+                        }
+                    });
+                });
+
+                $("#submit-hide-login-logout").click (function () {
+                    $("#login_logout").dialog('close');
+                });        
+            });
+        break;
+
+        default:
+            $(document).ready (function () {
+                // IE9- modal warning window
+                $(function() {
+                    $( "#dialog" ).dialog({
+                        resizable: true,
+                        draggable: true,
+                        modal: true,
+                        height: 400,
+                        width: 700,
+                        overlay: {
+                            opacity: 0.5,
+                            background: "black"
+                        }
+                    });
+                });
+                
+                $("#close-dialog-browser").click (function () {
+                    $("#dialog" ).dialog('close');
+                });
+                
+                $(function() {
+                    $( "#login_failed" ).dialog({
+                        resizable: true,
+                        draggable: true,
+                        modal: true,
+                        height: 220,
+                        width: 528,
+                        overlay: {
+                            opacity: 0.5,
+                            background: "black"
+                        }
+                    });
+                });
+
+                $("#submit-hide-login-error").click (function () {
+                    $("#login_failed" ).dialog('close');
+                    $("#login_correct_pass").dialog('close');
+                });
+            });
+            
+            $('#nick').focus();
+        break;
+    }
+
+    $(document).ready (function () {
+        $(function() {
+            $("#reset_correct").dialog({
+                resizable: true,
+                draggable: true,
+                modal: true,
+                height: 220,
+                width: 528,
+                clickOutside: true,
+                overlay: {
+                    opacity: 0.5,
+                    background: "black"
+                }
+            });
+        });
+
+        $("#submit-reset_correct_button").click (function () {
+            $("#reset_correct").dialog('close');
+        });        
+    });
+
+    $(document).ready (function () {
+        $(function() {
+            $("#final_process_correct").dialog({
+                resizable: true,
+                draggable: true,
+                modal: true,
+                height: 220,
+                width: 528,
+                clickOutside: true,
+                overlay: {
+                    opacity: 0.5,
+                    background: "black"
+                }
+            });
+        });
+
+        $("#submit-final_process_correct_button").click (function () {
+            $("#final_process_correct").dialog('close');
+        });        
+    });
+
+    /* ]]> */
+</script>
+</body></html>
