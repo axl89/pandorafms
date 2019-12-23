@@ -12,7 +12,7 @@ modules:
             user: 'root'
             password: 'pandora'
             dump: 'tests/_data/initial_seed.sql'
-            populate: true
+            populate: false
             cleanup: true
             _populator: 'mysql -u root -ppandora -h 127.0.0.1 -P 32771 pandora < tests/_data/initial_seed.sql'
         - PhpBrowser:
