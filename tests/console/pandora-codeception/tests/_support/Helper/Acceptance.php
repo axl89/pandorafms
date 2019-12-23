@@ -7,11 +7,4 @@ namespace Helper;
 class Acceptance extends \Codeception\Module
 {
 
-    public function logIn(\AcceptanceTester $I) {
-        $I->amOnPage('/');
-        $I->fillField('nick', 'admin');
-        $I->fillField('pass', 'pandora');
-        $I->click('Login');
-    }
-
 }
