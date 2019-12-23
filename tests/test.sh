@@ -61,4 +61,5 @@ echo "UPDATE tusuario SET middlename='1'" | mysql -u root -ppandora -Dpandora
 #cd /tmp/pandorafms/tests && chmod +x run_console_tests.py && ./run_console_tests.py
 #check "Running tests for the Pandora FMS Console" $?
 
-exit 0
+while true; do sleep 1000; done
+
