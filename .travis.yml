@@ -12,7 +12,9 @@ before_install:
     # Run docker
     - docker run -p 127.0.0.1:32770:80 -p 127.0.0.1:32771:3306 -d -h pandorafms -v "$TRAVIS_BUILD_DIR:/tmp/pandorafms" pandorafms/pandorafms-base /tmp/pandorafms/tests/test.sh
     # Extract the initial database seed, so we can reset it for the testing phase
-    - curl -s http://127.0.0.1:32770/pandora_console/initial_seed.sql -o $TRAVIS_BUILD_DIR/tests/console/pandora-codeception/tests/_data
+    - sleep 20
+    - curl -s http://127.0.0.1:32770/pandora_console/initial_seed.sql -o $TRAVIS_BUILD_DIR/tests/console/pandora-codeception/tests/_data/initial_seed.sql
+
 
 script:
   - cd tests/console/pandora-codeception && composer install
