@@ -10,6 +10,6 @@ before_install:
   - docker run -p 127.0.0.1:32770:80 -d -h pandorafms -v "$TRAVIS_BUILD_DIR:/tmp/pandorafms" pandorafms/pandorafms-base /tmp/pandorafms/tests/test.sh
 
 script:
-  - cd tests/console/pandora-codeception && composer install && php vendor/bin/codecept bootstrap
+  - cd tests/console/pandora-codeception && composer install
   - php vendor/bin/codecept run acceptance createUser.feature
   
