@@ -18,6 +18,7 @@
 */
 class AcceptanceTester extends \Codeception\Actor
 {
+
     use _generated\AcceptanceTesterActions;
 
     /**
@@ -25,24 +26,77 @@ class AcceptanceTester extends \Codeception\Actor
     */
     public function iAmAPandoraConsoleAdministrator()
     {
-        $this->amOnPage('/');
-        $this->fillField('nick', 'admin');
-        $this->fillField('pass', 'pandora');
-        $this->click('Login');
+        self::amOnPage('/');
+        self::fillField('nick', 'admin');
+        self::fillField('pass', 'pandora');
+        self::click('Login');
     }
+
+
+    /**
+    * @When /I fill (.+) field with the value (.*)/
+    */
+    public function iFillFieldWithValue($field_name, $fixed_value)
+    {
+        self::fillField($field_name, $fixed_value);
+    }
+
+    /**
+    * @When /I fill (.+) field with a (.+)/
+    */
+    public function iFillFieldWithData($field_name, $data_type)
+    {
+        switch($data_type) {
+            case 'positive integer':
+                $data = random_int(1, 9000); // Nothing is over 9000. Only Goku.
+                break;
+            case 'valid password':
+                $data = str_shuffle(base64_encode(date('mdyhis').date('mdyhis'))); //TODO: Fix this piece of crap
+                break;
+            case 'valid name':
+                $valid_names = [
+                    'Frijolito',
+                    'Angustias',
+                    'Demetario',
+                    'Nemesio',
+                    'Artura',
+                    'Bartolo',
+                    'Policarpo',
+                    'Piedrasantas',
+                    'Heradio'
+                ];
+                $data = $valid_names[array_rand($valid_names)];
+                break;
+            case 'valid email':
+                $data = 'pleasefixme@artica.es'; //TODO: Please google better than I did for 'php random email generator'
+                break;
+        }
+
+        self::fillField($field_name, $data);
+    }
+
+    /**
+     * @When I click on the create button
+     */
+    public function iClickOnTheCreateButton()
+    {
+        self::click('Create');
+    }
+
+
 
     /**
     * @Given I am in the user creation page
     */
     public function iAmInTheUserCreationPage()
     {
-        $this->amOnPage('/index.php?sec=gusuarios&sec2=godmode/users/user_list&tab=user&pure=0');
-        $this->see('Total items');
-        $this->see('Description');
+        self::amOnPage('/index.php?sec=gusuarios&sec2=godmode/users/user_list&tab=user&pure=0');
+        self::see('Total items');
+        self::see('Description');
 
-        $this->click('Create user');
+        self::click('Create user');
 
-        // Handy loop to avoid writting $this->see five thousand times
+        // Handy loop to avoid writting self::see five thousand times
         $things_I_should_see = [
             'Comments',
             'Password',
@@ -53,21 +107,8 @@ class AcceptanceTester extends \Codeception\Actor
         ];
 
         foreach ($things_I_should_see as $thing) {
-            $this->see($thing);
+            self::see($thing);
         }
-    }
-
-    /**
-    * @When I submit the form with valid data
-    */
-    public function iSubmitTheFormWithValidData()
-    {
-        $this->fillField('id_user', '1234');
-        $this->fillField('fullname', 'Rupert');
-        $this->fillField('password_new', 'mamasitaXd');
-        $this->fillField('password_confirm', 'mamasitaXd');
-        $this->fillField('email', 'rupert@artica.es');
-        $this->click('Create');
     }
 
     /**
@@ -75,7 +116,17 @@ class AcceptanceTester extends \Codeception\Actor
     */
     public function iShouldSeeASuccessfulMessage()
     {
-        $this->see('Successfully created');
+        self::see('Successfully created');
+    }
+
+
+    /**
+    * @Then I should see an unsuccessful message
+    */
+    public function iShouldSeeAnUnsuccessfulMessage()
+    {
+        self::dontSee('Successfully created');
+        self::see('Error');
     }
 
     /**
@@ -83,7 +134,7 @@ class AcceptanceTester extends \Codeception\Actor
     */
     public function iShouldSeeTheUserInTheUserListPage()
     {
-        $this->amOnPage('/index.php?sec=gusuarios&sec2=godmode/users/user_list&tab=user&pure=0');
-        $this->see('Rupert');
+        self::amOnPage('/index.php?sec=gusuarios&sec2=godmode/users/user_list&tab=user&pure=0');
+        self::see('Rupert');
     }
 }

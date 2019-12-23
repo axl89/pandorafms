@@ -7,6 +7,14 @@
 actor: AcceptanceTester
 modules:
     enabled:
+        - Db:
+            dsn: 'mysql:host=127.0.0.1;dbname=pandora;port=32771'
+            user: 'root'
+            password: 'pandora'
+            dump: 'tests/_data/initial_seed.sql'
+            populate: true
+            cleanup: true
+            _populator: 'mysql -u root -ppandora -h 127.0.0.1 -P 32771 pandora < tests/_data/initial_seed.sql'
         - PhpBrowser:
             url: http://localhost:32770/pandora_console
         - \Helper\Acceptance

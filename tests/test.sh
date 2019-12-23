@@ -17,7 +17,7 @@ function check {
 }
 
 # Start the required services.
-service mysqld start && /usr/bin/mysqladmin -u root password 'pandora'
+service mysqld start && /usr/bin/mysqladmin -u root password 'pandora' &&  mysql -u root -ppandora -e "GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' IDENTIFIED BY 'pandora';"
 check "Starting the MySQL Server" $?
 service httpd start
 check "Starting the Apache Web Server" $?
@@ -56,6 +56,9 @@ echo "UPDATE tconfig SET value='1' WHERE token='initial_wizard'" | mysql -u root
 echo "UPDATE tconfig SET value='1' WHERE token='instance_registered'" | mysql -u root -ppandora -Dpandora
 echo "INSERT INTO tconfig (token, value) VALUES ('skip_login_help_dialog', '1')" | mysql -u root -ppandora -Dpandora
 echo "UPDATE tusuario SET middlename='1'" | mysql -u root -ppandora -Dpandora
+
+# Put in a public place the initial sql file
+mysqldump -u root -ppandora pandora > /var/www/html/pandora_console/initial_seed.sql;
 
 # Run console tests.
 #cd /tmp/pandorafms/tests && chmod +x run_console_tests.py && ./run_console_tests.py
