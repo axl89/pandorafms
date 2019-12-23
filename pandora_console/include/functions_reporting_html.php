@@ -121,12 +121,9 @@ function html_do_report_info($report)
             </tr>
             <tr>
                 <td><b>'.__('Report date').': </b></td>';
-    if (isset($report['period'])) {
-        if (is_numeric($report['datetime']) && is_numeric($report['period'])) {
-            $html .= '<td>'.date($config['date_format'], ($report['datetime'] - $report['period'])).'</td>';
-        }
-
-        $html .= '<td></td>';
+    if (is_numeric($report['datetime']) && is_numeric($report['period']) && ($report['period'] != 0)) {
+        $html .= '<td>'.__('From').' <b>'.date($config['date_format'], ($report['datetime'] - $report['period'])).'</b></td>';
+        $html .= '<td>'.__('to').' <b>'.date($config['date_format'], $report['datetime']).'</b></td>';
     } else {
         $html .= '<td>'.__('Items period before').' <b>'.date($config['date_format'], $report['datetime']).'</b></td>';
     }
@@ -163,11 +160,11 @@ function reporting_html_print_report($report, $mini=false, $report_info=1)
         $table->width = '100%';
         $table->class = 'databox filters';
         $table->rowclass = [];
-        $table->rowclass[0] = 'datos3';
+        $table->rowclass[0] = 'datos5';
         $table->data = [];
         $table->head = [];
         $table->colspan = [];
-        $table->rowstyle = [];
+        $table->rowstyle = ['background-color: #686868'];
 
         if (isset($item['label']) && $item['label'] != '') {
             $id_agent = $item['id_agent'];
@@ -288,23 +285,6 @@ function reporting_html_print_report($report, $mini=false, $report_info=1)
                 reporting_html_sum_value($table, $item, $mini);
             break;
 
-            /*
-                case 'MTTR':
-                reporting_html_MTTR_value($table, $item, $mini, true, true);
-                break;
-
-                case 'MTBF':
-                reporting_html_MTBF_value($table, $item, $mini, true, true);
-                break;
-
-                case 'TTO':
-                reporting_html_TTO_value($table, $item, $mini, false, true);
-                break;
-
-                case 'TTRT':
-                reporting_html_TTRT_value($table, $item, $mini, false, true);
-                break;
-            */
             case 'agent_configuration':
                 reporting_html_agent_configuration($table, $item);
             break;
@@ -464,10 +444,12 @@ function reporting_html_SLA($table, $item, $mini, $pdf=0)
 
     global $config;
 
+    $interval_description = $config['interval_description'];
+
     if ($mini) {
         $font_size = '1.5';
     } else {
-        $font_size = '3';
+        $font_size = $config['font_size_item_report'];
     }
 
     $metaconsole_on = is_metaconsole();
@@ -626,7 +608,9 @@ function reporting_html_SLA($table, $item, $mini, $pdf=0)
 
                     if ($sla['time_total'] != 0) {
                         $row2[] = human_time_description_raw(
-                            $sla['time_total']
+                            $sla['time_total'],
+                            false,
+                            $interval_description
                         );
                     } else {
                         $row2[] = '--';
@@ -635,7 +619,8 @@ function reporting_html_SLA($table, $item, $mini, $pdf=0)
                     if ($sla['time_error'] != 0) {
                         $row2[] = '<span style="color: '.COL_CRITICAL.';">'.human_time_description_raw(
                             $sla['time_error'],
-                            true
+                            true,
+                            $interval_description
                         ).'</span>';
                     } else {
                         $row2[] = '--';
@@ -644,7 +629,8 @@ function reporting_html_SLA($table, $item, $mini, $pdf=0)
                     if ($sla['time_ok'] != 0) {
                         $row2[] = '<span style="color: '.COL_NORMAL.';">'.human_time_description_raw(
                             $sla['time_ok'],
-                            true
+                            true,
+                            $interval_description
                         ).'</span>';
                     } else {
                         $row2[] = '--';
@@ -653,7 +639,8 @@ function reporting_html_SLA($table, $item, $mini, $pdf=0)
                     if ($sla['time_unknown'] != 0) {
                         $row2[] = '<span style="color: '.COL_UNKNOWN.';">'.human_time_description_raw(
                             $sla['time_unknown'],
-                            true
+                            true,
+                            $interval_description
                         ).'</span>';
                     } else {
                         $row2[] = '--';
@@ -662,7 +649,8 @@ function reporting_html_SLA($table, $item, $mini, $pdf=0)
                     if ($sla['time_not_init'] != 0) {
                         $row2[] = '<span style="color: '.COL_NOTINIT.';">'.human_time_description_raw(
                             $sla['time_not_init'],
-                            true
+                            true,
+                            $interval_description
                         ).'</span>';
                     } else {
                         $row2[] = '--';
@@ -671,7 +659,8 @@ function reporting_html_SLA($table, $item, $mini, $pdf=0)
                     if ($sla['time_downtime'] != 0) {
                         $row2[] = '<span style="color: '.COL_DOWNTIME.';">'.human_time_description_raw(
                             $sla['time_downtime'],
-                            true
+                            true,
+                            $interval_description
                         ).'</span>';
                     } else {
                         $row2[] = '--';
@@ -736,11 +725,14 @@ function reporting_html_SLA($table, $item, $mini, $pdf=0)
             $table->data['error']['cell'] = __('There are no Agent/Modules defined');
         }
 
-        if (!empty($item['charts'])) {
+        if (empty($item['charts']) === false) {
             $table1 = new stdClass();
-            $table1->width = '99%';
+            $table1->width = '100%';
             $table1->size = [];
             $table1->size[0] = '10%';
+            if ($pdf !== 0) {
+                $table1->size[0] = '20%';
+            }
 
             $table1->data = [];
 
@@ -2513,7 +2505,7 @@ function reporting_html_monitor_report($table, $item, $mini, $pdf=0)
     if ($mini) {
         $font_size = '1.5';
     } else {
-        $font_size = '3';
+        $font_size = $config['font_size_item_report'];
     }
 
     $table->colspan['module']['cell'] = 3;
@@ -2729,31 +2721,6 @@ function reporting_html_agent_configuration(
 }
 
 
-/*
-    function reporting_html_TTRT_value(&$table, $item, $mini, $only_value=false, $check_empty=false)
-    {
-    reporting_html_value($table, $item, $mini, $only_value, $check_empty);
-    }
-
-
-    function reporting_html_TTO_value(&$table, $item, $mini, $only_value=false, $check_empty=false)
-    {
-    reporting_html_value($table, $item, $mini, $only_value, $check_empty);
-    }
-
-
-    function reporting_html_MTBF_value(&$table, $item, $mini, $only_value=false, $check_empty=false)
-    {
-    reporting_html_value($table, $item, $mini, $only_value, $check_empty);
-    }
-
-
-    function reporting_html_MTTR_value(&$table, $item, $mini, $only_value=false, $check_empty=false)
-    {
-    reporting_html_value($table, $item, $mini, $only_value, $check_empty);
-    }
-*/
-
 function reporting_html_sum_value(&$table, $item, $mini)
 {
     reporting_html_value($table, $item, $mini);
@@ -2780,10 +2747,12 @@ function reporting_html_min_value(&$table, $item, $mini)
 
 function reporting_html_value(&$table, $item, $mini, $only_value=false, $check_empty=false)
 {
+    global $config;
+
     if ($mini) {
         $font_size = '1.5';
     } else {
-        $font_size = '3';
+        $font_size = $config['font_size_item_report'];
     }
 
     if (isset($item['visual_format']) && $item['visual_format'] != 0
@@ -3052,6 +3021,8 @@ function reporting_html_availability($table, $item, $pdf=0)
 
     global $config;
 
+    $interval_description = $config['interval_description'];
+
     if (!empty($item['data'])) {
         $table1 = new stdClass();
         $table1->width = '99%';
@@ -3187,7 +3158,8 @@ function reporting_html_availability($table, $item, $pdf=0)
             if ($row['time_total'] != 0 && $item['fields']['total_time']) {
                 $table_row[] = human_time_description_raw(
                     $row['time_total'],
-                    true
+                    true,
+                    $interval_description
                 );
             } else if ($row['time_total'] == 0 && $item['fields']['total_time']) {
                 $table_row[] = '--';
@@ -3198,7 +3170,8 @@ function reporting_html_availability($table, $item, $pdf=0)
             if ($row['time_error'] != 0 && $item['fields']['time_failed']) {
                 $table_row[] = human_time_description_raw(
                     $row['time_error'],
-                    true
+                    true,
+                    $interval_description
                 );
             } else if ($row['time_error'] == 0 && $item['fields']['time_failed']) {
                 $table_row[] = '--';
@@ -3209,7 +3182,8 @@ function reporting_html_availability($table, $item, $pdf=0)
             if ($row['time_ok'] != 0 && $item['fields']['time_in_ok_status']) {
                 $table_row[] = human_time_description_raw(
                     $row['time_ok'],
-                    true
+                    true,
+                    $interval_description
                 );
             } else if ($row['time_ok'] == 0 && $item['fields']['time_in_ok_status']) {
                 $table_row[] = '--';
@@ -3220,7 +3194,8 @@ function reporting_html_availability($table, $item, $pdf=0)
             if ($row['time_unknown'] != 0 && $item['fields']['time_in_unknown_status']) {
                 $table_row[] = human_time_description_raw(
                     $row['time_unknown'],
-                    true
+                    true,
+                    $interval_description
                 );
             } else if ($row['time_unknown'] == 0 && $item['fields']['time_in_unknown_status']) {
                 $table_row[] = '--';
@@ -3231,7 +3206,8 @@ function reporting_html_availability($table, $item, $pdf=0)
             if ($row['time_not_init'] != 0 && $item['fields']['time_of_not_initialized_module']) {
                 $table_row[] = human_time_description_raw(
                     $row['time_not_init'],
-                    true
+                    true,
+                    $interval_description
                 );
             } else if ($row['time_not_init'] == 0 && $item['fields']['time_of_not_initialized_module']) {
                 $table_row[] = '--';
@@ -3242,7 +3218,8 @@ function reporting_html_availability($table, $item, $pdf=0)
             if ($row['time_downtime'] != 0 && $item['fields']['time_of_downtime']) {
                 $table_row[] = human_time_description_raw(
                     $row['time_downtime'],
-                    true
+                    true,
+                    $interval_description
                 );
             } else if ($row['time_downtime'] == 0 && $item['fields']['time_of_downtime']) {
                 $table_row[] = '--';
@@ -3450,13 +3427,20 @@ function reporting_html_availability_graph($table, $item, $pdf=0)
             // Check failover availability report.
             if ($item['data'][$k_chart]['failover'] === '') {
                 $table1 = new stdClass();
-                $table1->width = '99%';
+                $table1->width = '100%';
                 $table1->data = [];
                 $table1->size = [];
                 $table1->size[0] = '10%';
                 $table1->size[1] = '80%';
                 $table1->size[2] = '5%';
                 $table1->size[3] = '5%';
+                if ($pdf !== 0) {
+                    $table1->size[0] = '20%';
+                    $table1->size[1] = '60%';
+                    $table1->size[2] = '10%';
+                    $table1->size[3] = '10%';
+                }
+
                 $table1->data[0][0] = $chart['agent'].'<br />'.$chart['module'];
                 $table1->data[0][1] = $chart['chart'];
                 $table1->data[0][2] = "<span style = 'font: bold 2em Arial, Sans-serif; color: ".$color."'>".$sla_value.'</span>';
@@ -3625,10 +3609,10 @@ function reporting_html_general($table, $item, $pdf=0)
                     }
 
                     $table1->head[3] = __('Value');
-                    $table1->style[0] = 'text-align: left';
-                    $table1->style[1] = 'text-align: left';
-                    $table1->style[2] = 'text-align: left';
-                    $table1->style[3] = 'text-align: left';
+                    $table1->style[0] = 'text-align: center';
+                    $table1->style[1] = 'text-align: center';
+                    $table1->style[2] = 'text-align: center';
+                    $table1->style[3] = 'text-align: center';
 
                     // Begin - Order by agent.
                     foreach ($item['data'] as $key => $row) {
@@ -3759,12 +3743,16 @@ function reporting_html_general($table, $item, $pdf=0)
         $table_summary->head = [];
         $table_summary->head_colspan = [];
         $table_summary->align = [];
+        $table_summary->headstyle = [];
+        $table_summary->headstyle[0] = 'text-align: center;';
+        $table_summary->headstyle[1] = 'text-align: center;';
+        $table_summary->headstyle[2] = 'text-align: center;';
 
-        $table_summary->align[0] = 'left';
-        $table_summary->align[1] = 'right';
-        $table_summary->align[2] = 'right';
-        $table_summary->align[3] = 'left';
-        $table_summary->align[4] = 'right';
+        $table_summary->align[0] = 'center';
+        $table_summary->align[1] = 'center';
+        $table_summary->align[2] = 'center';
+        $table_summary->align[3] = 'center';
+        $table_summary->align[4] = 'center';
 
         $table_summary->head_colspan[0] = 2;
         $table_summary->head[0] = __('Min Value');
@@ -3772,11 +3760,11 @@ function reporting_html_general($table, $item, $pdf=0)
         $table_summary->head_colspan[2] = 2;
         $table_summary->head[2] = __('Max Value');
 
-        $table_summary->data[0][0] = $item['min']['agent'].' - '.$item['min']['module'];
-        $table_summary->data[0][1] = $item['min']['formated_value'];
+        $table_summary->data[0][0] = $item['min']['agent'].' - '.$item['min']['module'].str_repeat('&nbsp;', 20).$item['min']['formated_value'];
+        $table_summary->data[0][1] = '';
         $table_summary->data[0][2] = format_for_graph($item['avg_value'], 2);
-        $table_summary->data[0][3] = $item['max']['agent'].' - '.$item['max']['module'];
-        $table_summary->data[0][4] = $item['max']['formated_value'];
+        $table_summary->data[0][3] = $item['max']['agent'].' - '.$item['max']['module'].str_repeat('&nbsp;', 20).$item['max']['formated_value'];
+        $table_summary->data[0][4] = '';
 
         if ($pdf !== 0) {
             $return_pdf .= html_print_table($table_summary, true);
