@@ -51,4 +51,7 @@ Feature: User creation
 	And I click on the create button
     Then I should see a successful message
 
+  Scenario: create a user cannot click KEKE button
+    And I should not be able to click KEKE
+
 
