@@ -18,5 +18,5 @@ before_install:
 
 script:
   - cd tests/console/pandora-codeception && composer install
-  - php vendor/bin/codecept run acceptance createUser.feature
+  - php vendor/bin/codecept run acceptance
   
